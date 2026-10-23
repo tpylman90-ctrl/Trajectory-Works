@@ -35,6 +35,8 @@ var shot_count := 0
 var camera_dragging := false
 var active_shots: Dictionary = {}
 var barrel_pivot: Node3D
+var ground_visual: MeshInstance3D
+var ground_home := Vector3(0.0, -0.12, 0.0)
 
 
 func _ready() -> void:
@@ -114,13 +116,13 @@ void sky() {
 	environment.glow_enabled = true
 	for level in range(7):
 		environment.set_glow_level(level, 0.0)
-	environment.set_glow_level(0, 0.62)
-	environment.set_glow_level(1, 0.42)
-	environment.set_glow_level(2, 0.18)
-	environment.glow_intensity = 1.08
-	environment.glow_strength = 1.12
-	environment.glow_bloom = 0.12
-	environment.glow_hdr_threshold = 0.68
+	environment.set_glow_level(0, 0.34)
+	environment.set_glow_level(1, 0.19)
+	environment.set_glow_level(2, 0.07)
+	environment.glow_intensity = 0.86
+	environment.glow_strength = 0.92
+	environment.glow_bloom = 0.045
+	environment.glow_hdr_threshold = 1.25
 	environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	world.environment = environment
 	add_child(world)
@@ -134,22 +136,26 @@ void sky() {
 
 	camera = Camera3D.new()
 	camera.fov = 43.0
+	camera.far = 110000.0
 	add_child(camera)
 	_update_camera()
 	camera.make_current()
 
-	var ground := MeshInstance3D.new()
+	ground_visual = MeshInstance3D.new()
+	ground_visual.name = "Projectile-following render ground"
 	var ground_mesh := PlaneMesh.new()
-	ground_mesh.size = Vector2(160.0, 2300.0)
-	ground.mesh = ground_mesh
-	ground.position = Vector3(0.0, -0.12, -950.0)
-	ground.material_override = _ground_material()
-	add_child(ground)
+	# One large shader-driven tile follows the projectile so the horizon never exposes a board edge.
+	ground_mesh.size = Vector2(100000.0, 100000.0)
+	ground_visual.mesh = ground_mesh
+	ground_visual.position = ground_home
+	ground_visual.material_override = _ground_material()
+	add_child(ground_visual)
 	var ground_body := StaticBody3D.new()
-	ground_body.position = ground.position
+	ground_body.name = "Continuous long-range collision floor"
+	ground_body.position = Vector3(0.0, -0.12, 0.0)
 	var ground_collision := CollisionShape3D.new()
 	var ground_shape := BoxShape3D.new()
-	ground_shape.size = Vector3(160.0, 0.2, 2300.0)
+	ground_shape.size = Vector3(100000.0, 0.2, 100000.0)
 	ground_collision.shape = ground_shape
 	ground_body.add_child(ground_collision)
 	add_child(ground_body)
@@ -595,6 +601,8 @@ func _toggle_projectile_camera() -> void:
 			_update_projectile_camera(followed_projectile)
 	else:
 		followed_projectile = null
+		if is_instance_valid(ground_visual):
+			ground_visual.position = ground_home
 		_update_camera()
 	if is_instance_valid(projectile_camera_button):
 		projectile_camera_button.text = "PROJECTILE CAM  •  ON" if projectile_camera_enabled else "PROJECTILE CAM  •  OFF"
@@ -605,10 +613,12 @@ func _update_projectile_camera(projectile: RigidBody3D) -> void:
 		return
 	var velocity := projectile.linear_velocity
 	var forward := velocity.normalized() if velocity.length_squared() > 1.0 else -projectile.global_transform.basis.z.normalized()
-	var camera_up := Vector3.FORWARD if absf(forward.dot(Vector3.UP)) > 0.96 else Vector3.UP
-	camera.fov = 62.0
+	# Keep the chase view attached to the shot without pitching straight into empty sky.
+	# A slight downward bias preserves the course and horizon while the projectile remains in frame.
+	var view_forward := Vector3(forward.x, clampf(forward.y * 0.34 - 0.08, -0.35, 0.18), forward.z).normalized()
+	camera.fov = 72.0
 	camera.global_position = projectile.global_position - forward * 1.8 + Vector3.UP * 0.58
-	camera.look_at(projectile.global_position + forward * 35.0, camera_up)
+	camera.look_at(projectile.global_position + view_forward * 35.0, Vector3.UP)
 
 
 func _on_target_distance_selected(index: int) -> void:
@@ -785,6 +795,8 @@ func _physics_process(delta: float) -> void:
 			if velocity.length() > 1.0:
 				projectile.look_at(projectile.global_position + velocity.normalized(), Vector3.UP)
 		if projectile == followed_projectile:
+			if is_instance_valid(ground_visual):
+				ground_visual.global_position = Vector3(projectile.global_position.x, ground_home.y, projectile.global_position.z)
 			_update_projectile_camera(projectile)
 		shot.time = float(shot.time) + delta
 		shot.max_height = maxf(float(shot.max_height), projectile.global_position.y)
@@ -928,11 +940,11 @@ func _material(color: Color, metallic: float, roughness: float) -> StandardMater
 	if color.b > color.r * 1.7 and color.g > color.r * 1.7:
 		material.emission_enabled = true
 		material.emission = color
-		material.emission_energy_multiplier = 2.3
+		material.emission_energy_multiplier = 0.9
 	elif color.r > color.g * 1.35 and color.g > color.b * 2.0:
 		material.emission_enabled = true
 		material.emission = color
-		material.emission_energy_multiplier = 1.5
+		material.emission_energy_multiplier = 0.8
 	return material
 
 func _ground_material() -> ShaderMaterial:
