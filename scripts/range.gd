@@ -37,8 +37,14 @@ func _build_world() -> void:
 	environment.ambient_light_energy = 0.9
 	environment.fog_enabled = true
 	environment.fog_light_color = Color(0.32, 0.43, 0.52)
-	environment.fog_density = 0.007
-	environment.fog_sun_scatter = 0.08
+	environment.fog_density = 0.012
+	environment.fog_sun_scatter = 0.12
+	environment.glow_enabled = true
+	environment.glow_levels = PackedByteArray([1, 1, 1, 1, 1, 0, 0, 0])
+	environment.glow_intensity = 0.8
+	environment.glow_strength = 1.0
+	environment.glow_bloom = 0.08
+	environment.glow_hdr_threshold = 0.8
 	environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	world.environment = environment
 	add_child(world)
@@ -61,7 +67,7 @@ func _build_world() -> void:
 	ground_mesh.size = Vector2(70.0, 100.0)
 	ground.mesh = ground_mesh
 	ground.position = Vector3(0.0, -0.12, -25.0)
-	ground.material_override = _material(Color(0.105, 0.145, 0.17), 0.16, 0.86)
+	ground.material_override = _ground_material()
 	add_child(ground)
 	var ground_body := StaticBody3D.new()
 	ground_body.position = ground.position
@@ -230,9 +236,18 @@ func _build_range_details() -> void:
 				flood.position = Vector3(side * 9.65, 4.58, distance)
 				flood.light_color = Color(1.0, 0.54, 0.30)
 				flood.light_energy = 2.4
-				flood.omni_range = 12.0
+				flood.omni_range = 13.0
 				flood.shadow_enabled = false
 				add_child(flood)
+				var beam := SpotLight3D.new()
+				beam.position = Vector3(side * 9.65, 4.55, distance)
+				beam.look_at(Vector3(0.0, 0.0, distance - 15.0), Vector3.UP)
+				beam.light_color = Color(1.0, 0.68, 0.43)
+				beam.light_energy = 5.0
+				beam.spot_range = 28.0
+				beam.spot_angle = 48.0
+				beam.shadow_enabled = false
+				add_child(beam)
 
 
 func _build_hud() -> void:
@@ -240,13 +255,23 @@ func _build_hud() -> void:
 	add_child(layer)
 	var panel := PanelContainer.new()
 	panel.position = Vector2(26.0, 22.0)
-	panel.custom_minimum_size = Vector2(310.0, 120.0)
+	panel.custom_minimum_size = Vector2(390.0, 142.0)
+	var glass := StyleBoxFlat.new()
+	glass.bg_color = Color(0.018, 0.038, 0.055, 0.86)
+	glass.border_color = Color(0.20, 0.78, 0.91, 0.82)
+	glass.set_border_width_all(1)
+	glass.border_width_left = 3
+	glass.set_corner_radius_all(7)
+	glass.shadow_color = Color(0.0, 0.0, 0.0, 0.36)
+	glass.shadow_size = 8
+	panel.add_theme_stylebox_override("panel", glass)
 	layer.add_child(panel)
 	var stack := VBoxContainer.new()
 	panel.add_child(stack)
 	var title := Label.new()
 	title.text = "TRAJECTORY WORKS  /  RANGE 01"
 	title.add_theme_font_size_override("font_size", 20)
+	title.add_theme_color_override("font_color", Color(0.83, 0.94, 0.98))
 	stack.add_child(title)
 	status_label = Label.new()
 	status_label.text = "SYSTEM READY  •  PRESSURE: TRAINING"
@@ -255,6 +280,7 @@ func _build_hud() -> void:
 	var hint := Label.new()
 	hint.text = "Drag to orbit the range  •  Fire a test shot to inspect its flight"
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint.add_theme_color_override("font_color", Color(0.75, 0.86, 0.90))
 	stack.add_child(hint)
 	var fire := Button.new()
 	fire.text = "FIRE TEST SHOT"
@@ -268,6 +294,19 @@ func _build_hud() -> void:
 	fire.offset_right = -26.0
 	fire.offset_bottom = -26.0
 	fire.add_theme_font_size_override("font_size", 22)
+	var button_normal := StyleBoxFlat.new()
+	button_normal.bg_color = Color(0.015, 0.075, 0.095, 0.92)
+	button_normal.border_color = Color(0.12, 0.76, 0.91, 0.9)
+	button_normal.set_border_width_all(2)
+	button_normal.set_corner_radius_all(4)
+	var button_hover := StyleBoxFlat.new()
+	button_hover.bg_color = Color(0.04, 0.23, 0.29, 0.96)
+	button_hover.border_color = Color(0.35, 0.91, 1.0)
+	button_hover.set_border_width_all(2)
+	button_hover.set_corner_radius_all(4)
+	fire.add_theme_stylebox_override("normal", button_normal)
+	fire.add_theme_stylebox_override("hover", button_hover)
+	fire.add_theme_color_override("font_color", Color(0.55, 0.94, 1.0))
 	fire.pressed.connect(_fire_test_shot)
 	layer.add_child(fire)
 
@@ -312,8 +351,18 @@ func _fire_test_shot() -> void:
 	mesh.radius = 0.22
 	mesh.height = 0.44
 	mesh_instance.mesh = mesh
-	mesh_instance.material_override = _material(Color(0.82, 0.87, 0.86), 0.36, 0.16)
+	var projectile_material := _material(Color(0.82, 0.90, 0.94), 0.45, 0.16)
+	projectile_material.emission_enabled = true
+	projectile_material.emission = Color(0.18, 0.73, 1.0)
+	projectile_material.emission_energy_multiplier = 2.5
+	mesh_instance.material_override = projectile_material
 	projectile.add_child(mesh_instance)
+	var projectile_light := OmniLight3D.new()
+	projectile_light.light_color = Color(0.15, 0.72, 1.0)
+	projectile_light.light_energy = 3.0
+	projectile_light.omni_range = 4.5
+	projectile_light.shadow_enabled = false
+	projectile.add_child(projectile_light)
 	var collision := CollisionShape3D.new()
 	var shape := SphereShape3D.new()
 	shape.radius = 0.22
@@ -416,5 +465,52 @@ func _material(color: Color, metallic: float, roughness: float) -> StandardMater
 	material.roughness = roughness
 	if color.b > color.r * 1.7 and color.g > color.r * 1.7:
 		material.emission_enabled = true
-		material.emission = color * 0.45
+		material.emission = color
+		material.emission_energy_multiplier = 2.3
+	elif color.r > color.g * 1.35 and color.g > color.b * 2.0:
+		material.emission_enabled = true
+		material.emission = color
+		material.emission_energy_multiplier = 1.5
 	return material
+
+func _ground_material() -> ShaderMaterial:
+	var shader := Shader.new()
+	shader.code = """shader_type spatial;
+varying vec3 world_position;
+float hash21(vec2 p) {
+	p = fract(p * vec2(123.34, 456.21));
+	p += dot(p, p + 45.32);
+	return fract(p.x * p.y);
+}
+float value_noise(vec2 p) {
+	vec2 i = floor(p);
+	vec2 f = fract(p);
+	f = f * f * (3.0 - 2.0 * f);
+	float a = hash21(i);
+	float b = hash21(i + vec2(1.0, 0.0));
+	float c = hash21(i + vec2(0.0, 1.0));
+	float d = hash21(i + vec2(1.0, 1.0));
+	return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+void vertex() {
+	world_position = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+}
+void fragment() {
+	vec2 p = world_position.xz;
+	float broad = value_noise(p * 0.22);
+	float aggregate = value_noise(p * 1.1);
+	float grain = value_noise(p * 12.0);
+	vec2 panel = fract(p / vec2(7.5, 9.0));
+	float seam = max(1.0 - smoothstep(0.006, 0.018, min(panel.x, 1.0 - panel.x)),
+		1.0 - smoothstep(0.006, 0.018, min(panel.y, 1.0 - panel.y)));
+	vec3 concrete = vec3(0.115, 0.155, 0.178);
+	concrete *= 0.76 + broad * 0.20 + aggregate * 0.09 + grain * 0.035;
+	concrete = mix(concrete, vec3(0.035, 0.055, 0.068), seam * 0.82);
+	ALBEDO = concrete;
+	METALLIC = 0.16 + aggregate * 0.08;
+	ROUGHNESS = 0.80 + grain * 0.15;
+}
+"""
+	var result := ShaderMaterial.new()
+	result.shader = shader
+	return result
