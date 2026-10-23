@@ -81,9 +81,18 @@ jobs:
 
       - name: Validate and import Godot project
         run: |
+          set -o pipefail
           godot --version
-          godot --headless --path . --editor --import
-          godot --headless --path . --quit
+          godot --headless --path . --editor --import 2>&1 | tee /tmp/godot-import.log
+          if grep -E 'SCRIPT ERROR:|Failed to load script|Parse Error:' /tmp/godot-import.log; then
+            echo "Godot import reported script errors."
+            exit 1
+          fi
+          godot --headless --path . --quit-after 2 2>&1 | tee /tmp/godot-runtime.log
+          if grep -E 'SCRIPT ERROR:|Failed to load script|Parse Error:' /tmp/godot-runtime.log; then
+            echo "Godot startup reported script errors."
+            exit 1
+          fi
 
       - name: Prepare release signing key
         run: |
