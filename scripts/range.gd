@@ -41,7 +41,7 @@ func _build_world() -> void:
 	environment.fog_density = 0.012
 	environment.fog_sun_scatter = 0.12
 	environment.glow_enabled = true
-	environment.glow_levels = PackedByteArray([1, 1, 1, 1, 1, 0, 0, 0])
+	environment.glow_levels = 31
 	environment.glow_intensity = 0.8
 	environment.glow_strength = 1.0
 	environment.glow_bloom = 0.08
@@ -221,13 +221,13 @@ func _build_range_details() -> void:
 				add_child(flood)
 				var beam := SpotLight3D.new()
 				beam.position = Vector3(side * 9.65, 4.55, distance)
-				beam.look_at(Vector3(0.0, 0.0, distance - 15.0), Vector3.UP)
 				beam.light_color = Color(1.0, 0.68, 0.43)
 				beam.light_energy = 5.0
 				beam.spot_range = 28.0
 				beam.spot_angle = 48.0
 				beam.shadow_enabled = false
 				add_child(beam)
+				beam.look_at(Vector3(0.0, 0.0, distance - 15.0), Vector3.UP)
 
 
 func _build_range_assets() -> void:
