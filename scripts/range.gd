@@ -37,6 +37,7 @@ var shot_count := 0
 var camera_dragging := false
 var active_shots: Dictionary = {}
 var barrel_pivot: Node3D
+var barrel_pivot_base_rotation := Vector3.ZERO
 var ground_visual: MeshInstance3D
 var ground_mesh: PlaneMesh
 var ground_render_size := 100000.0
@@ -181,6 +182,7 @@ func _build_cannon() -> void:
 			add_child(imported)
 			barrel_pivot = imported.find_child("ElevationPivot", true, false) as Node3D
 			if is_instance_valid(barrel_pivot):
+				barrel_pivot_base_rotation = barrel_pivot.rotation
 				barrel_pivot.set_meta("muzzle_offset", -6.12)
 			var mesh_points: Array[Vector3] = []
 			_collect_mesh_points(imported, Transform3D.IDENTITY, mesh_points)
@@ -212,6 +214,7 @@ func _build_cannon() -> void:
 	barrel_pivot.name = "ElevationPivot"
 	barrel_pivot.position = Vector3(0.0, 1.47, 0.18)
 	barrel_pivot.set_meta("muzzle_offset", -7.16)
+	barrel_pivot_base_rotation = Vector3.ZERO
 	cannon.add_child(barrel_pivot)
 	_add_cylinder(barrel_pivot, Vector3(0.0, 0.0, -4.13), 0.36, 5.8, Color(0.42, 0.49, 0.54), 0.22, 0.72, true)
 	_add_cylinder(barrel_pivot, Vector3(0.0, 0.0, -7.0), 0.48, 0.38, Color(0.10, 0.16, 0.20), 0.32, 0.48, true)
@@ -654,7 +657,9 @@ func _on_elevation_changed(value: float) -> void:
 	if is_instance_valid(elevation_value_label):
 		elevation_value_label.text = "BARREL ELEVATION  •  %+0.1f°" % value
 	if is_instance_valid(barrel_pivot):
-		barrel_pivot.rotation.x = deg_to_rad(value)
+		var pivot_rotation := barrel_pivot_base_rotation
+		pivot_rotation.x += deg_to_rad(value)
+		barrel_pivot.rotation = pivot_rotation
 
 
 func _on_wind_changed(value: float) -> void:
