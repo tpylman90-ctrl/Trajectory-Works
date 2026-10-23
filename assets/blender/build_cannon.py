@@ -89,7 +89,7 @@ def material(name, color, metallic=0.0, roughness=0.45, emission=None):
     links.new(normal_map.outputs["Normal"], shader.inputs["Normal"])
     if emission:
         shader.inputs["Emission Color"].default_value = (*emission, 1.0)
-        shader.inputs["Emission Strength"].default_value = 1.5
+        shader.inputs["Emission Strength"].default_value = 0.65
     return mat
 
 
@@ -172,7 +172,7 @@ def build():
     barrel = material("Barrel | brushed titanium", (0.34, 0.42, 0.47), 0.86, 0.23)
     copper = material("Coils | warm copper", (0.66, 0.24, 0.10), 0.78, 0.26)
     tube = material("Pneumatic lines | pale alloy", (0.53, 0.67, 0.68), 0.76, 0.22)
-    cyan = material("Field indicator | cyan", (0.12, 0.72, 0.90), 0.3, 0.2, (0.08, 0.65, 1.0))
+    cyan = material("Field indicator | cyan", (0.09, 0.48, 0.62), 0.3, 0.24, (0.035, 0.31, 0.48))
 
     # The meshes are authored in Godot's Y-up / -Z-forward coordinates.
     # Pre-compensate the Blender glTF exporter's Z-up to Y-up axis rotation so
