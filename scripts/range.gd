@@ -183,7 +183,7 @@ func _build_cannon() -> void:
 			barrel_pivot = imported.find_child("ElevationPivot", true, false) as Node3D
 			if is_instance_valid(barrel_pivot):
 				barrel_pivot_base_rotation = barrel_pivot.rotation
-				barrel_pivot.set_meta("muzzle_offset", -6.12)
+				barrel_pivot.set_meta("muzzle_offset", -7.24)
 			var mesh_points: Array[Vector3] = []
 			_collect_mesh_points(imported, Transform3D.IDENTITY, mesh_points)
 			if not mesh_points.is_empty():
