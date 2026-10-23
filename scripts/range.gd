@@ -176,8 +176,7 @@ func _build_cannon() -> void:
 			var imported := packed.instantiate() as Node3D
 			# The Blender GLB arrives with its long axis on local Y; rotate it onto Godot's -Z firing axis.
 			imported.rotation.x = -PI * 0.5
-			# Compress only the imported vertical axis to keep the armored receiver at believable scale.
-			imported.scale.z = 0.5
+			# Preserve the Blender model's full dimensions; the imported base was being compressed.
 			imported.position.y = 0.385
 			add_child(imported)
 			# Keep the base's authored orientation under the shared import correction:
