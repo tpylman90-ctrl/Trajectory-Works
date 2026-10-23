@@ -41,6 +41,11 @@ var round_preview_container: SubViewportContainer
 var round_station_slider: HSlider
 var round_station_label: Label
 var round_sculpt_hint: Label
+var round_surface_picker: OptionButton
+var round_rib_count_slider: HSlider
+var round_rib_depth_slider: HSlider
+var round_spiral_turns_slider: HSlider
+var round_surface_info: Label
 var round_mode_buttons: Array[Button] = []
 var round_mode := "pull"
 var round_drag_active := false
@@ -711,6 +716,10 @@ func _start_fresh_round() -> void:
 		"color": steel.color,
 		"tip_length": 0.243,
 		"cd": _round_drag_coefficient("Ogive"),
+		"surface_pattern": "smooth",
+		"rib_count": 6,
+		"rib_depth": 0.0,
+		"spiral_turns": 0.0,
 	}
 	_ensure_round_stations()
 	custom_round_active = true
@@ -722,6 +731,14 @@ func _start_fresh_round() -> void:
 		_on_round_station_changed(4.0)
 	if is_instance_valid(round_preview_spin):
 		round_preview_spin.rotation = Vector3.ZERO
+	if is_instance_valid(round_surface_picker):
+		round_surface_picker.select(0)
+	if is_instance_valid(round_rib_count_slider):
+		round_rib_count_slider.set_value_no_signal(6.0)
+	if is_instance_valid(round_rib_depth_slider):
+		round_rib_depth_slider.set_value_no_signal(0.0)
+	if is_instance_valid(round_spiral_turns_slider):
+		round_spiral_turns_slider.set_value_no_signal(0.0)
 	_set_round_sculpt_mode("pull")
 	if is_instance_valid(round_nose_picker):
 		round_nose_picker.select(0)
@@ -871,6 +888,22 @@ func _build_round_editor() -> void:
 	round_sculpt_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	round_sculpt_hint.add_theme_color_override("font_color", Color(0.70, 0.84, 0.89))
 	form.add_child(round_sculpt_hint)
+	var surface_title := Label.new()
+	surface_title.text = "RIBS, GROOVES & SPIRAL"
+	surface_title.add_theme_color_override("font_color", Color(0.45, 0.86, 0.95))
+	form.add_child(surface_title)
+	round_surface_picker = OptionButton.new()
+	round_surface_picker.add_item("Smooth jacket")
+	round_surface_picker.add_item("Raised helical ribs")
+	round_surface_picker.add_item("Cut helical grooves")
+	form.add_child(round_surface_picker)
+	round_rib_count_slider = _add_round_editor_slider(form, "RIB / GROOVE COUNT", 3.0, 12.0, 1.0, float(current_projectile.get("rib_count", 6)))
+	round_rib_depth_slider = _add_round_editor_slider(form, "RIDGE / GROOVE DEPTH (MM)", 0.0, 8.0, 0.25, float(current_projectile.get("rib_depth", 0.002)) * 1000.0)
+	round_spiral_turns_slider = _add_round_editor_slider(form, "HELIX TURNS OVER BODY", -3.0, 3.0, 0.25, float(current_projectile.get("spiral_turns", 0.0)))
+	round_surface_info = Label.new()
+	round_surface_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	round_surface_info.add_theme_color_override("font_color", Color(0.70, 0.84, 0.89))
+	form.add_child(round_surface_info)
 	round_diameter_slider = _add_round_editor_slider(form, "BODY DIAMETER", 80.0, 320.0, 5.0, float(current_projectile.get("diameter", 0.18)) * 1000.0)
 	round_length_slider = _add_round_editor_slider(form, "OVERALL LENGTH", 250.0, 1250.0, 25.0, maxf(float(current_projectile.get("length", 0.54)), 0.25) * 1000.0)
 	round_dimensions_label = Label.new()
@@ -929,6 +962,12 @@ func _build_round_editor() -> void:
 	round_material_picker.item_selected.connect(_on_round_material_changed)
 	round_diameter_slider.value_changed.connect(_on_round_design_changed)
 	round_length_slider.value_changed.connect(_on_round_design_changed)
+	round_surface_picker.item_selected.connect(_on_round_surface_changed)
+	round_rib_count_slider.value_changed.connect(_on_round_surface_changed)
+	round_rib_depth_slider.value_changed.connect(_on_round_surface_changed)
+	round_spiral_turns_slider.value_changed.connect(_on_round_surface_changed)
+	round_surface_picker.select(clampi(1 if str(current_projectile.get("surface_pattern", "smooth")) == "ridges" else (2 if str(current_projectile.get("surface_pattern", "smooth")) == "grooves" else 0), 0, 2))
+	_on_round_surface_changed(0.0)
 	_on_round_station_changed(round_station_slider.value)
 	_on_round_design_changed(0.0)
 
@@ -1036,6 +1075,30 @@ func _on_round_material_changed(_index: int) -> void:
 	_on_round_design_changed(0.0)
 
 
+
+func _on_round_surface_changed(_value: float = 0.0) -> void:
+	if current_projectile.is_empty() or not is_instance_valid(round_surface_picker):
+		return
+	var pattern := "smooth"
+	if round_surface_picker.selected == 1:
+		pattern = "ridges"
+	elif round_surface_picker.selected == 2:
+		pattern = "grooves"
+	current_projectile["surface_pattern"] = pattern
+	current_projectile["rib_count"] = int(round_rib_count_slider.value) if is_instance_valid(round_rib_count_slider) else 6
+	current_projectile["rib_depth"] = round_rib_depth_slider.value / 1000.0 if is_instance_valid(round_rib_depth_slider) else 0.0
+	current_projectile["spiral_turns"] = round_spiral_turns_slider.value if is_instance_valid(round_spiral_turns_slider) else 0.0
+	current_projectile["mass"] = _round_volume(current_projectile) * float(current_projectile.get("density", 7850.0))
+	if is_instance_valid(round_surface_info):
+		var description := "Smooth jacket: choose ridges or grooves to add a patterned surface."
+		if pattern != "smooth":
+			var chirality := "right hand" if float(current_projectile.spiral_turns) > 0.0 else ("left hand" if float(current_projectile.spiral_turns) < 0.0 else "straight ribs")
+			var spin_note := "Air drag adds spin when helix turns are nonzero." if absf(float(current_projectile.spiral_turns)) > 0.001 else "Set helix turns to create spin from air drag."
+			description = "%s %d × %0.1f mm  •  %0.2f turns over body (%s). %s" % ["Raised ribs" if pattern == "ridges" else "Cut grooves", int(current_projectile.rib_count), float(current_projectile.rib_depth) * 1000.0, absf(float(current_projectile.spiral_turns)), chirality, spin_note]
+		round_surface_info.text = description
+	_refresh_round_design()
+
+
 func _ensure_round_stations() -> void:
 	var stations: Array = current_projectile.get("stations", [])
 	if stations.size() != 9:
@@ -1135,12 +1198,19 @@ func _round_station_at(z: float, design: Dictionary) -> Dictionary:
 
 func _round_ring_point(radius: float, z: float, angle: float, design: Dictionary) -> Vector3:
 	var station := _round_station_at(z, design)
-	var twist := float(station.get("twist", 0.0))
 	var body_radius := float(design.diameter) * 0.5
+	var normalized_z := clampf((z + float(design.length) * 0.5) / maxf(float(design.length), 0.001), 0.0, 1.0)
+	var twist := float(station.get("twist", 0.0)) + normalized_z * float(design.get("spiral_turns", 0.0)) * TAU
 	var nose_start := -float(design.length) * 0.5 + float(design.get("tip_length", 0.0))
-	var flute_fade := smoothstep(nose_start, nose_start + body_radius * 0.9, z) * (1.0 - smoothstep(float(design.length) * 0.5 - body_radius * 0.6, float(design.length) * 0.5, z))
-	var flute := 1.0 + 0.14 * flute_fade * cos(6.0 * (angle - twist))
-	var scaled_radius := radius * float(station.get("pull", 1.0)) * flute
+	var body_fade := smoothstep(nose_start, nose_start + body_radius * 0.9, z) * (1.0 - smoothstep(float(design.length) * 0.5 - body_radius * 0.6, float(design.length) * 0.5, z))
+	var rib_count := maxi(int(design.get("rib_count", 6)), 3)
+	var amplitude := minf(float(design.get("rib_depth", 0.0)), body_radius * 0.18)
+	var pattern := str(design.get("surface_pattern", "smooth"))
+	var ridge_sign := 1.0 if pattern == "ridges" else -1.0
+	var rib_offset := 0.0
+	if pattern != "smooth" and amplitude > 0.00001:
+		rib_offset = ridge_sign * amplitude * body_fade * cos(float(rib_count) * (angle - twist))
+	var scaled_radius := maxf(radius * float(station.get("pull", 1.0)) + rib_offset, radius * 0.25)
 	return Vector3(
 		float(station.get("bend_x", 0.0)) + scaled_radius * cos(angle),
 		float(station.get("bend_y", 0.0)) + scaled_radius * sin(angle),
@@ -1164,6 +1234,10 @@ func _round_volume(design: Dictionary) -> float:
 		"Round":
 			nose_factor = 0.58
 	var base_volume := body_volume + area * nose_length * nose_factor
+	var surface_pattern := str(design.get("surface_pattern", "smooth"))
+	if surface_pattern != "smooth":
+		var depth_ratio := minf(float(design.get("rib_depth", 0.0)) / maxf(radius, 0.001), 0.18)
+		base_volume *= 1.0 + 0.5 * depth_ratio * depth_ratio
 	var stations: Array = design.get("stations", [])
 	if stations.size() < 2:
 		return base_volume
@@ -1200,8 +1274,8 @@ func _round_profile(design: Dictionary) -> Array[Vector2]:
 	var nose_length := minf(float(design.get("tip_length", radius * 2.7)), length * 0.45)
 	var body_end_z := -length * 0.5 + nose_length
 	var profile: Array[Vector2] = []
-	for segment in range(33):
-		var along := float(segment) / 32.0
+	for segment in range(65):
+		var along := float(segment) / 64.0
 		var z := lerpf(length * 0.5, -length * 0.5, along)
 		var ring_radius := radius
 		if z < body_end_z and nose_length > 0.001:
@@ -1223,8 +1297,8 @@ func _round_profile(design: Dictionary) -> Array[Vector2]:
 func _round_collision_points(design: Dictionary) -> PackedVector3Array:
 	var points := PackedVector3Array()
 	for ring in _round_profile(design):
-		for slice in range(24):
-			var angle := TAU * float(slice) / 24.0
+		for slice in range(48):
+			var angle := TAU * float(slice) / 48.0
 			points.append(_round_ring_point(ring.x, ring.y, angle, design))
 	return points
 
@@ -1233,7 +1307,7 @@ func _build_round_mesh(design: Dictionary) -> ArrayMesh:
 	var profile := _round_profile(design)
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var slices := 48
+	var slices := 96
 	for segment in range(profile.size() - 1):
 		var first: Vector2 = profile[segment]
 		var second: Vector2 = profile[segment + 1]
@@ -1318,6 +1392,10 @@ func _save_custom_round() -> void:
 		"density": float(current_projectile.get("density", 7850.0)),
 		"tip_length": float(current_projectile.get("tip_length", 0.24)),
 		"stations": current_projectile.get("stations", []),
+		"surface_pattern": str(current_projectile.get("surface_pattern", "smooth")),
+		"rib_count": int(current_projectile.get("rib_count", 6)),
+		"rib_depth": float(current_projectile.get("rib_depth", 0.0)),
+		"spiral_turns": float(current_projectile.get("spiral_turns", 0.0)),
 	}
 	var file := FileAccess.open("user://trajectory_round.json", FileAccess.WRITE)
 	if file == null:
@@ -1356,6 +1434,10 @@ func _load_saved_round() -> void:
 		"color": material_data.color,
 		"tip_length": clampf(float(saved.get("tip_length", diameter * 1.35)), 0.01, length * 0.45),
 		"stations": saved.get("stations", []),
+		"surface_pattern": str(saved.get("surface_pattern", "grooves")),
+		"rib_count": clampi(int(saved.get("rib_count", 6)), 3, 12),
+		"rib_depth": clampf(float(saved.get("rib_depth", 0.008)), 0.0, 0.008),
+		"spiral_turns": clampf(float(saved.get("spiral_turns", 0.0)), -3.0, 3.0),
 		"cd": _round_drag_coefficient(nose),
 	}
 	current_projectile["mass"] = _round_volume(current_projectile) * float(current_projectile.density)
@@ -1468,7 +1550,7 @@ func _fire_test_shot() -> void:
 	projectile.mass = float(design.mass)
 	projectile.linear_damp = 0.0
 	projectile.gravity_scale = 0.0
-	projectile.angular_damp = 0.35
+	projectile.angular_damp = 0.03 if design.shape == "custom" and str(design.get("surface_pattern", "smooth")) != "smooth" else 0.35
 	projectile.continuous_cd = true
 	projectile.contact_monitor = true
 	projectile.max_contacts_reported = 4
@@ -1599,6 +1681,9 @@ func _physics_process(_delta: float) -> void:
 			var radius := float(design.diameter) * 0.5 * shape_width_scale
 			var projected_area := PI * radius * radius
 			var effective_cd := float(design.cd)
+			if design.shape == "custom" and str(design.get("surface_pattern", "smooth")) != "smooth":
+				var depth_ratio := clampf(float(design.get("rib_depth", 0.0)) / maxf(float(design.diameter) * 0.5, 0.001), 0.0, 0.18)
+				effective_cd *= 1.0 + depth_ratio * 0.22 + float(design.get("rib_count", 6)) * depth_ratio * 0.008
 			var axis := -projectile.global_transform.basis.z.normalized()
 			if design.shape != "sphere":
 				var air_direction := relative_air_velocity.normalized()
@@ -1615,9 +1700,23 @@ func _physics_process(_delta: float) -> void:
 			if design.shape != "sphere" and speed > 1.0:
 				var dynamic_pressure := 0.5 * density * speed * speed
 				var alignment_error := axis.cross(relative_air_velocity.normalized())
-				var stability_torque := alignment_error * minf(dynamic_pressure * projected_area * float(design.length) * 0.00004, 30.0)
+				var spin_rate := projectile.angular_velocity.dot(axis)
+				var spin_stability := 1.0 / (1.0 + absf(spin_rate) * 0.018)
+				var stability_torque := alignment_error * minf(dynamic_pressure * projected_area * float(design.length) * 0.00004, 30.0) * spin_stability
 				var rotational_damping := projectile.angular_velocity * minf(dynamic_pressure * projected_area * float(design.length) * 0.000003, 5.0)
-				projectile.apply_torque(stability_torque - rotational_damping)
+				var aero_torque := Vector3.ZERO
+				if design.shape == "custom" and str(design.get("surface_pattern", "smooth")) != "smooth":
+					var stations: Array = design.get("stations", [])
+					var station_turns := 0.0
+					if stations.size() >= 2:
+						station_turns = (float(stations[8].get("twist", 0.0)) - float(stations[0].get("twist", 0.0))) / TAU
+					var total_turns := float(design.get("spiral_turns", 0.0)) + station_turns
+					if absf(total_turns) > 0.001:
+						var helical_slope := sin(atan(float(design.diameter) * 0.5 * TAU * total_turns / maxf(float(design.length), 0.001)))
+						var rib_ratio := clampf(float(design.get("rib_depth", 0.0)) / maxf(float(design.diameter) * 0.5, 0.001), 0.0, 0.18)
+						var spin_torque := drag * float(design.diameter) * 0.5 * rib_ratio * helical_slope * 0.22
+						aero_torque = axis * spin_torque
+				projectile.apply_torque(stability_torque - rotational_damping + aero_torque)
 		if projectile == followed_projectile:
 			if is_instance_valid(ground_visual):
 				ground_visual.global_position = Vector3(projectile.global_position.x, ground_home.y, projectile.global_position.z)
