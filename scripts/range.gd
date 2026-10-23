@@ -61,6 +61,7 @@ var projectile_camera_button: Button
 var projectile_camera_enabled := false
 var followed_projectile: RigidBody3D
 var last_projectile: RigidBody3D
+var projectile_flow_material: StandardMaterial3D
 var speed_value_label: Label
 var elevation_value_label: Label
 var wind_value_label: Label
@@ -1573,10 +1574,10 @@ func _fire_test_shot() -> void:
 	mesh_instance.mesh = mesh
 	if design.shape != "custom":
 		mesh_instance.rotation.x = PI * 0.5
-	var projectile_material := _material(design.color, 0.52, 0.22)
+	var projectile_material := _material(design.color, 0.36, 0.68)
 	projectile_material.emission_enabled = true
-	projectile_material.emission = Color(0.18, 0.73, 1.0) if design.shape != "shuttle" else Color(1.0, 0.28, 0.06)
-	projectile_material.emission_energy_multiplier = 3.0
+	projectile_material.emission = Color(0.025, 0.13, 0.17) if design.shape != "shuttle" else Color(0.17, 0.055, 0.015)
+	projectile_material.emission_energy_multiplier = 0.42
 	mesh_instance.material_override = projectile_material
 	projectile.add_child(mesh_instance)
 	if design.shape == "shuttle":
@@ -1590,11 +1591,20 @@ func _fire_test_shot() -> void:
 			fin.material_override = projectile_material
 			mesh_instance.add_child(fin)
 	var projectile_light := OmniLight3D.new()
-	projectile_light.light_color = Color(0.15, 0.72, 1.0)
-	projectile_light.light_energy = 3.0
-	projectile_light.omni_range = 4.5
+	projectile_light.light_color = Color(0.12, 0.58, 0.78)
+	projectile_light.light_energy = 0.28
+	projectile_light.omni_range = 1.15
 	projectile_light.shadow_enabled = false
 	projectile.add_child(projectile_light)
+	var flow_visual := MeshInstance3D.new()
+	flow_visual.name = "Subtle aerodynamic flow lines"
+	var flow_mesh := ImmediateMesh.new()
+	flow_visual.mesh = flow_mesh
+	flow_visual.material_override = _get_projectile_flow_material()
+	flow_visual.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	projectile.add_child(flow_visual)
+	projectile.set_meta("flow_mesh", flow_mesh)
+	projectile.set_meta("flow_update_accumulator", 0.0)
 	var collision := CollisionShape3D.new()
 	var collision_shape: Shape3D
 	if design.shape == "custom":
@@ -1630,6 +1640,88 @@ func _fire_test_shot() -> void:
 	active_shots[projectile.get_instance_id()] = {"body": projectile, "number": shot_count, "time": 0.0, "max_height": projectile.global_position.y, "origin": projectile.global_position, "design": design}
 	analysis_label.text = "IN FLIGHT  •  %0.1f KG / %0.0f MM / Cd %0.2f" % [design.mass, design.diameter * 1000.0, design.cd]
 	# Shots remain active until impact; the long failsafe only cleans up runaway bodies.
+
+
+func _get_projectile_flow_material() -> StandardMaterial3D:
+	if is_instance_valid(projectile_flow_material):
+		return projectile_flow_material
+	projectile_flow_material = StandardMaterial3D.new()
+	projectile_flow_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	projectile_flow_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	projectile_flow_material.vertex_color_use_as_albedo = true
+	projectile_flow_material.albedo_color = Color.WHITE
+	projectile_flow_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	projectile_flow_material.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+	projectile_flow_material.emission_enabled = false
+	projectile_flow_material.render_priority = 1
+	return projectile_flow_material
+
+
+func _flow_vertex(mesh: ImmediateMesh, point: Vector3, tint: Color) -> void:
+	mesh.surface_set_color(tint)
+	mesh.surface_add_vertex(point)
+
+
+func _update_projectile_flow_vfx(projectile: RigidBody3D, design: Dictionary, relative_air_velocity: Vector3, speed: float, density: float, mach: float, flight_time: float) -> void:
+	var flow_mesh := projectile.get_meta("flow_mesh", null) as ImmediateMesh
+	if not is_instance_valid(flow_mesh):
+		return
+	flow_mesh.clear_surfaces()
+	flow_mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+	var diameter := float(design.get("diameter", 0.12))
+	var radius := diameter * 0.5
+	var length := float(design.get("length", diameter * 3.0))
+	var tip_length := clampf(float(design.get("tip_length", radius * 1.4)), length * 0.04, length * 0.46)
+	var body_start := -length * 0.5 + tip_length
+	var body_length := maxf(length - tip_length, length * 0.35)
+	var wake_length := clampf(0.30 + speed * 0.00045, 0.30, 1.35)
+	var density_factor := clampf(sqrt(maxf(density, 0.0) / AIR_DENSITY), 0.0, 1.0)
+	var local_flow := projectile.global_transform.basis.inverse() * -relative_air_velocity.normalized()
+	var crossflow := Vector3(local_flow.x, local_flow.y, 0.0).limit_length(0.8)
+	var mach_factor := clampf(mach / 5.0, 0.35, 1.0)
+	var segment_count := 14
+	for line_index in range(4):
+		var angle := TAU * float(line_index) / 4.0
+		var radial := Vector3(cos(angle), sin(angle), 0.0)
+		var width_axis := Vector3(-sin(angle), cos(angle), 0.0)
+		var previous_left := Vector3.ZERO
+		var previous_right := Vector3.ZERO
+		var previous_alpha := 0.0
+		for point_index in range(segment_count + 1):
+			var u := float(point_index) / float(segment_count)
+			var z := body_start
+			var radial_scale := 1.0
+			var wake_t := 0.0
+			if u <= 0.70:
+				var body_t := u / 0.70
+				z = body_start + body_length * body_t
+				radial_scale = lerpf(0.10, 1.045, smoothstep(0.0, 0.085, body_t))
+			else:
+				wake_t = (u - 0.70) / 0.30
+				z = length * 0.5 + wake_length * wake_t
+				radial_scale = 1.045 + wake_t * 0.18
+			var flutter := sin(flight_time * 8.0 + u * 20.0 + float(line_index) * 1.9) * radius * 0.045 * mach_factor * wake_t
+			var wind_offset := crossflow * wake_length * wake_t * 0.28
+			var station := _round_station_at(z, design) if design.shape == "custom" else {"bend_x": 0.0, "bend_y": 0.0, "pull": 1.0}
+			var local_radius := radius * radial_scale * float(station.get("pull", 1.0)) + flutter
+			var center := Vector3(float(station.get("bend_x", 0.0)), float(station.get("bend_y", 0.0)), z) + radial * local_radius + wind_offset
+			var width := maxf(diameter * 0.018 * (1.0 - wake_t * 0.58), 0.0008)
+			var left := center + width_axis * width
+			var right := center - width_axis * width
+			var alpha := density_factor * (0.38 if u <= 0.70 else 0.38 * (1.0 - wake_t) * (1.0 - wake_t))
+			alpha *= 0.92 + 0.08 * sin(flight_time * 6.0 + float(line_index))
+			var tint := Color(0.18, 0.68, 0.83, alpha)
+			if point_index > 0:
+				_flow_vertex(flow_mesh, previous_left, Color(tint.r, tint.g, tint.b, previous_alpha))
+				_flow_vertex(flow_mesh, previous_right, Color(tint.r, tint.g, tint.b, previous_alpha))
+				_flow_vertex(flow_mesh, left, tint)
+				_flow_vertex(flow_mesh, previous_right, Color(tint.r, tint.g, tint.b, previous_alpha))
+				_flow_vertex(flow_mesh, right, tint)
+				_flow_vertex(flow_mesh, left, tint)
+			previous_left = left
+			previous_right = right
+			previous_alpha = alpha
+	flow_mesh.surface_end()
 
 
 func _atmosphere_state(altitude: float) -> Dictionary:
@@ -1717,6 +1809,12 @@ func _physics_process(_delta: float) -> void:
 						var spin_torque := drag * float(design.diameter) * 0.5 * rib_ratio * helical_slope * 0.22
 						aero_torque = axis * spin_torque
 				projectile.apply_torque(stability_torque - rotational_damping + aero_torque)
+			var flow_timer := float(projectile.get_meta("flow_update_accumulator", 0.0)) + _delta
+			if flow_timer >= 0.05:
+				projectile.set_meta("flow_update_accumulator", fmod(flow_timer, 0.05))
+				_update_projectile_flow_vfx(projectile, design, relative_air_velocity, speed, density, mach, float(shot.time))
+			else:
+				projectile.set_meta("flow_update_accumulator", flow_timer)
 		if projectile == followed_projectile:
 			if is_instance_valid(ground_visual):
 				ground_visual.global_position = Vector3(projectile.global_position.x, ground_home.y, projectile.global_position.z)
