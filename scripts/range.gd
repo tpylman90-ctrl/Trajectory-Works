@@ -816,7 +816,7 @@ func _update_replay_pose() -> void:
 	var rotation := rotation_a.slerp(rotation_b, t).normalized()
 	if is_instance_valid(replay_round):
 		replay_round.global_position = position
-		replay_round.global_basis = Basis(rotation)
+		replay_round.global_transform = Transform3D(Basis(rotation), position)
 	var velocity: Vector3 = a.velocity.lerp(b.velocity, t)
 	_update_replay_camera(position, velocity, float(replay_design.get("diameter", 0.18)))
 
