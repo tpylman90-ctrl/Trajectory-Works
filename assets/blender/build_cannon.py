@@ -165,7 +165,7 @@ def build():
     cube("Armored pressure housing", (0.0, 0.93, 0.0), (2.05, 1.30, 1.75), blue, 0.27)
     # Exposed elevation trunnions and paired yoke struts make the mount read as operable machinery.
     for side in (-1, 1):
-        cylinder_between("Elevation yoke strut", (side * 0.82, 0.44, 0.34), (side * 0.91, 0.93, 0.34), 0.14, dark)
+        cylinder_between("Elevation yoke strut", (side * 1.08, 0.44, 0.34), (side * 1.08, 0.93, 0.34), 0.14, dark)
         cylinder_between("Trunnion drum", (side * 0.94, 0.94, 0.30), (side * 1.19, 0.94, 0.30), 0.39, blue_edge)
         torus("Trunnion bronze race", (side * 1.18, 0.94, 0.30), 0.31, 0.035, copper, rotation=(0.0, math.pi * 0.5, 0.0))
         cylinder_between("Trunnion locking hub", (side * 1.19, 0.94, 0.30), (side * 1.24, 0.94, 0.30), 0.19, dark)
@@ -227,7 +227,7 @@ def build():
 
     # A stepped muzzle jacket, inset bore, and concentric field emitter finish the barrel.
     cylinder_between("Muzzle shroud", (0.0, 1.17, -6.18), (0.0, 1.17, -6.82), 0.425, blue_edge)
-    cylinder_between("Bore shadow insert", (0.0, 1.17, -6.79), (0.0, 1.17, -6.805), 0.285, graphite, vertices=64)
+    cylinder_between("Bore shadow insert", (0.0, 1.17, -6.835), (0.0, 1.17, -6.85), 0.285, graphite, vertices=64)
     torus("Muzzle seal | graphite", (0.0, 1.17, -6.20), 0.432, 0.035, graphite)
     torus("Muzzle crown | titanium", (0.0, 1.17, -6.83), 0.455, 0.055, fastener_metal)
     for index in range(8):
