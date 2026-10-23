@@ -75,6 +75,7 @@ func _ready() -> void:
 	_build_range_details()
 	_build_range_assets()
 	current_projectile = PROJECTILE_TYPES[0].duplicate(true)
+	_load_saved_round()
 	_build_hud()
 	set_physics_process(true)
 
@@ -541,6 +542,8 @@ func _build_hud() -> void:
 	for projectile_data in PROJECTILE_TYPES:
 		projectile_picker.add_item(str(projectile_data.name))
 	projectile_picker.add_item("Custom round")
+	if custom_round_active:
+		projectile_picker.select(PROJECTILE_TYPES.size())
 	projectile_picker.item_selected.connect(_on_projectile_preset_selected)
 	stack.add_child(projectile_picker)
 	target_distance_label = Label.new()
@@ -799,7 +802,7 @@ func _build_round_editor() -> void:
 	preview_column.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	body.add_child(preview_column)
 	var preview_title := Label.new()
-	preview_title.text = "LIVE PROFILE  •  DRAG TO CHANGE THE GEOMETRY"
+	preview_title.text = "LIVE 3D PROFILE  •  DRAG SLIDERS TO RESHAPE"
 	preview_title.add_theme_color_override("font_color", Color(0.47, 0.83, 0.92))
 	preview_column.add_child(preview_title)
 	var preview_frame := PanelContainer.new()
@@ -1082,7 +1085,60 @@ func _refresh_round_design() -> void:
 			preview_camera.look_at(Vector3.ZERO, Vector3.UP)
 
 
+func _save_custom_round() -> void:
+	var save_data := {
+		"name": str(current_projectile.get("name", "Custom round")),
+		"diameter": float(current_projectile.get("diameter", 0.18)),
+		"length": float(current_projectile.get("length", 0.54)),
+		"nose": str(current_projectile.get("nose", "Ogive")),
+		"material": str(current_projectile.get("material", "Steel")),
+		"density": float(current_projectile.get("density", 7850.0)),
+		"tip_length": float(current_projectile.get("tip_length", 0.24)),
+	}
+	var file := FileAccess.open("user://trajectory_round.json", FileAccess.WRITE)
+	if file == null:
+		push_warning("Could not save the custom round to user storage.")
+		return
+	file.store_string(JSON.stringify(save_data))
+
+
+func _load_saved_round() -> void:
+	if not FileAccess.file_exists("user://trajectory_round.json"):
+		return
+	var file := FileAccess.open("user://trajectory_round.json", FileAccess.READ)
+	if file == null:
+		return
+	var parsed: Variant = JSON.parse_string(file.get_as_text())
+	if not parsed is Dictionary:
+		return
+	var saved: Dictionary = parsed
+	var nose := str(saved.get("nose", "Ogive"))
+	var material_name := str(saved.get("material", "Steel"))
+	var material_data: Dictionary = ROUND_MATERIALS[1]
+	for candidate in ROUND_MATERIALS:
+		if str(candidate.name) == material_name:
+			material_data = candidate
+			break
+	var diameter := clampf(float(saved.get("diameter", 0.18)), 0.08, 0.32)
+	var length := clampf(float(saved.get("length", 0.54)), 0.25, 1.25)
+	current_projectile = {
+		"name": "Custom round",
+		"shape": "custom",
+		"diameter": diameter,
+		"length": length,
+		"nose": nose if ROUND_NOSES.has(nose) else "Ogive",
+		"material": str(material_data.name),
+		"density": float(material_data.density),
+		"color": material_data.color,
+		"tip_length": clampf(float(saved.get("tip_length", diameter * 1.35)), 0.01, length * 0.45),
+		"cd": _round_drag_coefficient(nose),
+	}
+	current_projectile["mass"] = _round_volume(current_projectile) * float(current_projectile.density)
+	custom_round_active = true
+
+
 func _close_round_editor() -> void:
+	_save_custom_round()
 	if is_instance_valid(round_editor_screen):
 		round_editor_screen.queue_free()
 		round_editor_screen = null
