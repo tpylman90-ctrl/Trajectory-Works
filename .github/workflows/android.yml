@@ -76,8 +76,13 @@ jobs:
       - name: Generate cannon GLB with Blender
         run: blender --background --factory-startup --python assets/blender/build_cannon.py
 
-      - name: Verify generated asset
-        run: test -s assets/generated/trajectory_cannon.glb
+      - name: Generate industrial range set dressing with Blender
+        run: blender --background --factory-startup --python assets/blender/build_range.py
+
+      - name: Verify generated assets
+        run: |
+          test -s assets/generated/trajectory_cannon.glb
+          test -s assets/generated/trajectory_range.glb
 
       - name: Validate and import Godot project
         run: |
