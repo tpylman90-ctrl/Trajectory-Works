@@ -77,6 +77,7 @@ func _build_cannon() -> void:
 		var packed := load(glb_path) as PackedScene
 		if packed != null:
 			var imported := packed.instantiate() as Node3D
+			imported.position.y = 0.385
 			add_child(imported)
 			var mesh_points: Array[Vector3] = []
 			_collect_mesh_points(imported, Transform3D.IDENTITY, mesh_points)
@@ -93,6 +94,7 @@ func _build_cannon() -> void:
 
 	var cannon := Node3D.new()
 	cannon.name = "CannonPreview"
+	cannon.position.y = 0.385
 	add_child(cannon)
 	_add_box(cannon, Vector3(0.0, 0.30, 0.5), Vector3(2.8, 0.42, 3.4), Color(0.07, 0.13, 0.19), 0.35, 0.72)
 	_add_box(cannon, Vector3(0.0, 0.82, 0.0), Vector3(2.15, 1.65, 1.85), Color(0.10, 0.29, 0.47), 0.28, 0.58)
