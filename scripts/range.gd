@@ -41,7 +41,11 @@ func _build_world() -> void:
 	environment.fog_density = 0.012
 	environment.fog_sun_scatter = 0.12
 	environment.glow_enabled = true
-	environment.glow_levels = 31
+	for level in range(7):
+		environment.set_glow_level(level, 0.0)
+	environment.set_glow_level(0, 0.62)
+	environment.set_glow_level(1, 0.42)
+	environment.set_glow_level(2, 0.18)
 	environment.glow_intensity = 0.8
 	environment.glow_strength = 1.0
 	environment.glow_bloom = 0.08
