@@ -270,6 +270,125 @@ func _build_range() -> void:
 	active_target = _add_target(Vector3(0.0, 3.2, -float(target_distance_m)), 2.5)
 
 
+func _add_ambient_steam() -> void:
+	for side in [-1.0, 1.0]:
+		_create_steam_emitter(self, Vector3(side * 1.25, 0.46, 0.42), 22)
+	if is_instance_valid(barrel_pivot):
+		_create_steam_emitter(barrel_pivot, Vector3(0.43, -0.18, -1.55), 18)
+		_create_steam_emitter(barrel_pivot, Vector3(-0.43, -0.18, -1.55), 18)
+
+
+func _create_steam_emitter(parent: Node3D, at: Vector3, particle_count: int) -> void:
+	var particles := GPUParticles3D.new()
+	particles.name = "Slow ambient pressure steam"
+	particles.position = at
+	particles.amount = particle_count
+	particles.lifetime = 3.8
+	particles.preprocess = 1.4
+	particles.explosiveness = 0.0
+	particles.randomness = 0.18
+	particles.visibility_aabb = AABB(Vector3(-2.5, -0.5, -2.5), Vector3(5.0, 5.0, 5.0))
+	var process := ParticleProcessMaterial.new()
+	process.direction = Vector3(0.0, 1.0, 0.0)
+	process.spread = 24.0
+	process.initial_velocity_min = 0.08
+	process.initial_velocity_max = 0.24
+	process.gravity = Vector3(0.0, 0.035, 0.0)
+	process.scale_min = 0.10
+	process.scale_max = 0.27
+	process.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+	process.emission_sphere_radius = 0.045
+	var fade := Gradient.new()
+	fade.offsets = PackedFloat32Array([0.0, 0.12, 0.72, 1.0])
+	fade.colors = PackedColorArray([
+		Color(0.75, 0.84, 0.90, 0.0),
+		Color(0.75, 0.84, 0.90, 0.16),
+		Color(0.70, 0.80, 0.87, 0.08),
+		Color(0.65, 0.76, 0.84, 0.0)
+	])
+	var color_ramp := GradientTexture1D.new()
+	color_ramp.gradient = fade
+	process.color_ramp = color_ramp
+	particles.process_material = process
+	var puff := SphereMesh.new()
+	puff.radius = 0.15
+	puff.height = 0.30
+	puff.radial_segments = 8
+	puff.rings = 4
+	var puff_material := StandardMaterial3D.new()
+	puff_material.albedo_color = Color(0.72, 0.82, 0.88, 0.20)
+	puff_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	puff_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	puff_material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	puff_material.roughness = 1.0
+	puff.material = puff_material
+	particles.draw_pass_1 = puff
+	parent.add_child(particles)
+
+
+func _add_light_shaft(origin: Vector3, target: Vector3, color: Color) -> void:
+	var shaft := MeshInstance3D.new()
+	shaft.name = "Mobile compatible floodlight shaft"
+	var cone := CylinderMesh.new()
+	cone.top_radius = 0.025
+	cone.bottom_radius = 2.8
+	cone.height = 27.0
+	cone.radial_segments = 24
+	shaft.mesh = cone
+	var direction := (target - origin).normalized()
+	shaft.position = origin + direction * (cone.height * 0.5)
+	shaft.quaternion = Quaternion(Vector3.UP, -direction)
+	var shaft_shader := Shader.new()
+	shaft_shader.code = """shader_type spatial;
+render_mode unshaded, blend_add, cull_disabled, depth_draw_never;
+uniform vec4 shaft_color : source_color = vec4(1.0, 0.58, 0.34, 0.035);
+void fragment() {
+	float fade_ends = smoothstep(0.02, 0.20, UV.y) * (1.0 - smoothstep(0.78, 1.0, UV.y));
+	float soft_pulse = 0.82 + 0.18 * sin(UV.x * TAU);
+	ALBEDO = shaft_color.rgb;
+	ALPHA = shaft_color.a * fade_ends * soft_pulse;
+}
+"""
+	var shaft_material := ShaderMaterial.new()
+	shaft_material.shader = shaft_shader
+	shaft_material.set_shader_parameter("shaft_color", Color(color.r, color.g, color.b, 0.038))
+	shaft.material_override = shaft_material
+	add_child(shaft)
+
+
+func _add_hud_corner_marks(layer: CanvasLayer, panel: Control) -> void:
+	var marks := Control.new()
+	marks.name = "Tactical HUD corner marks"
+	marks.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	marks.z_index = 8
+	layer.add_child(marks)
+	for index in 8:
+		var bar := ColorRect.new()
+		bar.color = Color(0.38, 0.91, 1.0, 0.94)
+		bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		marks.add_child(bar)
+	panel.resized.connect(_sync_hud_corner_marks.bind(panel, marks))
+	_sync_hud_corner_marks(panel, marks)
+
+
+func _sync_hud_corner_marks(panel: Control, marks: Control) -> void:
+	marks.position = panel.position
+	marks.size = panel.size
+	var arm := 16.0
+	var inset := 7.0
+	for corner in 4:
+		var right := corner % 2 == 1
+		var bottom := corner >= 2
+		var x := marks.size.x - inset - arm if right else inset
+		var y := marks.size.y - inset - arm if bottom else inset
+		var horizontal := marks.get_child(corner * 2) as ColorRect
+		horizontal.position = Vector2(x, y)
+		horizontal.size = Vector2(arm, 2.0)
+		var vertical := marks.get_child(corner * 2 + 1) as ColorRect
+		vertical.position = Vector2(x, y)
+		vertical.size = Vector2(2.0, arm)
+
+
 func _build_range_details() -> void:
 	for distance in [-5.0, -10.0, -15.0, -20.0, -25.0, -30.0, -35.0, -40.0, -45.0]:
 		_add_box(self, Vector3(0.0, -0.105, distance), Vector3(36.0, 0.012, 0.018), Color(0.075, 0.105, 0.12), 0.22, 0.7)
