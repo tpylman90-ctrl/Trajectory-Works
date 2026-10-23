@@ -37,6 +37,8 @@ var round_dimensions_label: Label
 var round_mass_label: Label
 var round_volume_label: Label
 var round_material_label: Label
+var round_preview_stats: Label
+var round_step_label: Label
 var round_preview_container: SubViewportContainer
 var round_station_slider: HSlider
 var round_station_label: Label
@@ -1161,51 +1163,68 @@ func _build_round_editor() -> void:
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	editor_card.add_child(scroll)
 	var form := VBoxContainer.new()
-	form.add_theme_constant_override("separation", 7)
+	form.add_theme_constant_override("separation", 10)
 	form.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(form)
-
-	var instructions := Label.new()
-	instructions.text = "Shape the round. Geometry and material set mass; nose profile sets drag."
-	instructions.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	instructions.add_theme_color_override("font_color", Color(0.70, 0.84, 0.89))
-	form.add_child(instructions)
+	var intro := Label.new()
+	intro.text = "Build a round in four simple steps. Your preview updates as you work."
+	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	intro.add_theme_color_override("font_color", Color(0.70, 0.84, 0.89))
+	form.add_child(intro)
 	var fresh_round_button := Button.new()
-	fresh_round_button.text = "START FRESH ROUND"
-	fresh_round_button.custom_minimum_size.y = 42.0
+	fresh_round_button.text = "＋  START FROM A CLEAN ROUND"
+	fresh_round_button.custom_minimum_size.y = 40.0
 	fresh_round_button.add_theme_color_override("font_color", Color(0.55, 0.94, 1.0))
 	fresh_round_button.pressed.connect(_start_fresh_round)
 	form.add_child(fresh_round_button)
 
+	var design_tabs := TabContainer.new()
+	design_tabs.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	design_tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	design_tabs.add_theme_constant_override("side_margin", 4)
+	form.add_child(design_tabs)
+	design_tabs.tab_changed.connect(_on_round_editor_tab_changed)
+	var body_page := VBoxContainer.new()
+	body_page.name = "01  BODY"
+	body_page.add_theme_constant_override("separation", 9)
+	design_tabs.add_child(body_page)
+	var sculpt_page := VBoxContainer.new()
+	sculpt_page.name = "02  SCULPT"
+	sculpt_page.add_theme_constant_override("separation", 9)
+	design_tabs.add_child(sculpt_page)
+	var surface_page := VBoxContainer.new()
+	surface_page.name = "03  SURFACE"
+	surface_page.add_theme_constant_override("separation", 9)
+	design_tabs.add_child(surface_page)
+	var mass_page := VBoxContainer.new()
+	mass_page.name = "04  MATERIAL & MASS"
+	mass_page.add_theme_constant_override("separation", 9)
+	design_tabs.add_child(mass_page)
+
+	_add_round_editor_section(body_page, "BODY PROFILE", "Choose the nose, diameter, and length. These set the round’s silhouette and frontal area.")
 	var nose_label := Label.new()
-	nose_label.text = "NOSE PROFILE"
-	form.add_child(nose_label)
+	nose_label.text = "NOSE SHAPE"
+	body_page.add_child(nose_label)
 	round_nose_picker = OptionButton.new()
 	for nose_name in ROUND_NOSES:
 		round_nose_picker.add_item(nose_name)
 	round_nose_picker.selected = max(ROUND_NOSES.find(str(current_projectile.get("nose", "Ogive"))), 0)
-	form.add_child(round_nose_picker)
+	body_page.add_child(round_nose_picker)
+	round_diameter_slider = _add_round_editor_slider(body_page, "DIAMETER  •  MM", 80.0, 320.0, 5.0, float(current_projectile.get("diameter", 0.18)) * 1000.0)
+	round_length_slider = _add_round_editor_slider(body_page, "LENGTH  •  MM", 250.0, 1250.0, 25.0, maxf(float(current_projectile.get("length", 0.54)), 0.25) * 1000.0)
+	var body_note := Label.new()
+	body_note.text = "Tip: a longer, narrower body usually has less frontal drag."
+	body_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body_note.add_theme_color_override("font_color", Color(0.65, 0.80, 0.85))
+	body_page.add_child(body_note)
+	round_dimensions_label = Label.new()
+	round_dimensions_label.add_theme_color_override("font_color", Color(0.45, 0.86, 0.95))
+	body_page.add_child(round_dimensions_label)
 
-	var material_label := Label.new()
-	material_label.text = "BODY MATERIAL"
-	form.add_child(material_label)
-	round_material_picker = OptionButton.new()
-	for material_data in ROUND_MATERIALS:
-		round_material_picker.add_item(str(material_data.name))
-	var initial_material := 1
-	for material_index in ROUND_MATERIALS.size():
-		if ROUND_MATERIALS[material_index].name == str(current_projectile.get("material", "Steel")):
-			initial_material = material_index
-	round_material_picker.selected = initial_material
-	form.add_child(round_material_picker)
-
-	var sculpt_title := Label.new()
-	sculpt_title.text = "FREEFORM SHAPING"
-	sculpt_title.add_theme_color_override("font_color", Color(0.45, 0.86, 0.95))
-	form.add_child(sculpt_title)
+	_add_round_editor_section(sculpt_page, "FREEFORM SCULPT", "Select a station, then drag the 3D round. The mode buttons decide how the drag changes it.")
 	var sculpt_modes := HBoxContainer.new()
 	sculpt_modes.add_theme_constant_override("separation", 4)
-	form.add_child(sculpt_modes)
+	sculpt_page.add_child(sculpt_modes)
 	var sculpt_mode_group := ButtonGroup.new()
 	round_mode_buttons.clear()
 	for mode_name in ["PULL", "BEND", "TWIST", "ORBIT"]:
@@ -1214,62 +1233,89 @@ func _build_round_editor() -> void:
 		mode_button.toggle_mode = true
 		mode_button.button_group = sculpt_mode_group
 		mode_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		mode_button.custom_minimum_size.y = 38.0
 		mode_button.button_pressed = mode_name == "PULL"
 		mode_button.pressed.connect(_set_round_sculpt_mode.bind(mode_name.to_lower()))
 		round_mode_buttons.append(mode_button)
 		sculpt_modes.add_child(mode_button)
 	round_station_label = Label.new()
-	form.add_child(round_station_label)
+	sculpt_page.add_child(round_station_label)
 	round_station_slider = HSlider.new()
 	round_station_slider.min_value = 0
 	round_station_slider.max_value = 8
 	round_station_slider.step = 1
 	round_station_slider.value = 4
 	round_station_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	round_station_slider.custom_minimum_size.y = 32.0
 	round_station_slider.value_changed.connect(_on_round_station_changed)
-	form.add_child(round_station_slider)
+	sculpt_page.add_child(round_station_slider)
 	round_sculpt_hint = Label.new()
 	round_sculpt_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	round_sculpt_hint.add_theme_color_override("font_color", Color(0.70, 0.84, 0.89))
-	form.add_child(round_sculpt_hint)
-	var surface_title := Label.new()
-	surface_title.text = "RIBS, GROOVES & SPIRAL"
-	surface_title.add_theme_color_override("font_color", Color(0.45, 0.86, 0.95))
-	form.add_child(surface_title)
+	sculpt_page.add_child(round_sculpt_hint)
+	var sculpt_tip := Label.new()
+	sculpt_tip.text = "Drag across the model to sculpt • drag empty space to orbit"
+	sculpt_tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	sculpt_tip.add_theme_color_override("font_color", Color(0.48, 0.84, 0.91))
+	sculpt_page.add_child(sculpt_tip)
+
+	_add_round_editor_section(surface_page, "SURFACE DETAIL", "Surface patterns add visible rifling and influence spin and drag during flight.")
 	round_surface_picker = OptionButton.new()
 	round_surface_picker.add_item("Smooth jacket")
-	round_surface_picker.add_item("Raised helical ribs")
+	round_surface_picker.add_item("Raised helical ridges")
 	round_surface_picker.add_item("Cut helical grooves")
-	form.add_child(round_surface_picker)
-	round_rib_count_slider = _add_round_editor_slider(form, "RIB / GROOVE COUNT", 3.0, 12.0, 1.0, float(current_projectile.get("rib_count", 6)))
-	round_rib_depth_slider = _add_round_editor_slider(form, "RIDGE / GROOVE DEPTH (MM)", 0.0, 8.0, 0.25, float(current_projectile.get("rib_depth", 0.002)) * 1000.0)
-	round_spiral_turns_slider = _add_round_editor_slider(form, "HELIX TURNS OVER BODY", -3.0, 3.0, 0.25, float(current_projectile.get("spiral_turns", 0.0)))
+	surface_page.add_child(round_surface_picker)
+	round_rib_count_slider = _add_round_editor_slider(surface_page, "RIDGE / GROOVE COUNT", 3.0, 12.0, 1.0, float(current_projectile.get("rib_count", 6)))
+	round_rib_depth_slider = _add_round_editor_slider(surface_page, "DEPTH  •  MM", 0.0, 8.0, 0.25, float(current_projectile.get("rib_depth", 0.002)) * 1000.0)
+	round_spiral_turns_slider = _add_round_editor_slider(surface_page, "SPIRAL TURNS", -3.0, 3.0, 0.25, float(current_projectile.get("spiral_turns", 0.0)))
 	round_surface_info = Label.new()
 	round_surface_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	round_surface_info.add_theme_color_override("font_color", Color(0.70, 0.84, 0.89))
-	form.add_child(round_surface_info)
-	round_diameter_slider = _add_round_editor_slider(form, "BODY DIAMETER", 80.0, 320.0, 5.0, float(current_projectile.get("diameter", 0.18)) * 1000.0)
-	round_length_slider = _add_round_editor_slider(form, "OVERALL LENGTH", 250.0, 1250.0, 25.0, maxf(float(current_projectile.get("length", 0.54)), 0.25) * 1000.0)
-	round_dimensions_label = Label.new()
-	round_dimensions_label.add_theme_color_override("font_color", Color(0.45, 0.86, 0.95))
-	form.add_child(round_dimensions_label)
+	surface_page.add_child(round_surface_info)
+	var surface_note := Label.new()
+	surface_note.text = "A helical pattern transfers aerodynamic torque into round spin."
+	surface_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	surface_note.add_theme_color_override("font_color", Color(0.65, 0.80, 0.85))
+	surface_page.add_child(surface_note)
+
+	_add_round_editor_section(mass_page, "MATERIAL & FLIGHT WEIGHT", "Material density combines with the sculpted volume to estimate mass.")
+	var material_label := Label.new()
+	material_label.text = "BODY MATERIAL"
+	mass_page.add_child(material_label)
+	round_material_picker = OptionButton.new()
+	for material_data in ROUND_MATERIALS:
+		round_material_picker.add_item(str(material_data.name))
+	var initial_material := 1
+	for material_index in ROUND_MATERIALS.size():
+		if ROUND_MATERIALS[material_index].name == str(current_projectile.get("material", "Steel")):
+			initial_material = material_index
+	round_material_picker.selected = initial_material
+	mass_page.add_child(round_material_picker)
 	round_mass_label = Label.new()
 	round_mass_label.add_theme_font_size_override("font_size", 23)
 	round_mass_label.add_theme_color_override("font_color", Color(0.96, 0.67, 0.29))
-	form.add_child(round_mass_label)
+	mass_page.add_child(round_mass_label)
 	round_volume_label = Label.new()
-	form.add_child(round_volume_label)
+	mass_page.add_child(round_volume_label)
 	round_material_label = Label.new()
-	form.add_child(round_material_label)
+	mass_page.add_child(round_material_label)
 
 	var preview_column := VBoxContainer.new()
 	preview_column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	preview_column.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	body.add_child(preview_column)
+	round_step_label = Label.new()
+	round_step_label.add_theme_font_size_override("font_size", 14)
+	round_step_label.add_theme_color_override("font_color", Color(0.98, 0.63, 0.30))
+	preview_column.add_child(round_step_label)
+	_on_round_editor_tab_changed(design_tabs.current_tab)
 	var preview_title := Label.new()
 	preview_title.text = "LIVE 3D ROUND  •  TOUCH DRAG TO SCULPT"
 	preview_title.add_theme_color_override("font_color", Color(0.47, 0.83, 0.92))
 	preview_column.add_child(preview_title)
+	round_preview_stats = Label.new()
+	round_preview_stats.add_theme_color_override("font_color", Color(0.74, 0.88, 0.92))
+	preview_column.add_child(round_preview_stats)
 	var preview_frame := PanelContainer.new()
 	preview_frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	preview_frame.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -1316,18 +1362,51 @@ func _build_round_editor() -> void:
 	_on_round_design_changed(0.0)
 
 
+func _on_round_editor_tab_changed(index: int) -> void:
+	if not is_instance_valid(round_step_label):
+		return
+	var steps := ["BUILD BODY", "SCULPT SHAPE", "ADD SURFACE DETAIL", "CHECK MATERIAL & MASS"]
+	var step_index := clampi(index, 0, steps.size() - 1)
+	round_step_label.text = "STEP %02d / 04  •  %s" % [step_index + 1, steps[step_index]]
+
+
+func _add_round_editor_section(parent: VBoxContainer, heading: String, detail: String) -> void:
+	var title := Label.new()
+	title.text = heading
+	title.add_theme_font_size_override("font_size", 17)
+	title.add_theme_color_override("font_color", Color(0.49, 0.89, 0.97))
+	parent.add_child(title)
+	var description := Label.new()
+	description.text = detail
+	description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	description.add_theme_color_override("font_color", Color(0.65, 0.80, 0.85))
+	parent.add_child(description)
+
+
+func _update_round_slider_readout(value: float, label: Label) -> void:
+	label.text = "%0.2f" % value if not is_equal_approx(value, roundf(value)) else "%0.0f" % value
+
+
 func _add_round_editor_slider(parent: VBoxContainer, caption: String, minimum: float, maximum: float, step: float, initial: float) -> HSlider:
+	var header := HBoxContainer.new()
+	parent.add_child(header)
 	var label := Label.new()
 	label.text = caption
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	label.add_theme_color_override("font_color", Color(0.79, 0.87, 0.90))
-	parent.add_child(label)
+	header.add_child(label)
+	var value_label := Label.new()
+	value_label.text = "%0.2f" % initial if not is_equal_approx(initial, roundf(initial)) else "%0.0f" % initial
+	value_label.add_theme_color_override("font_color", Color(0.49, 0.89, 0.97))
+	header.add_child(value_label)
 	var slider := HSlider.new()
 	slider.min_value = minimum
 	slider.max_value = maximum
 	slider.step = step
 	slider.value = clampf(initial, minimum, maximum)
 	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	slider.custom_minimum_size.y = 30.0
+	slider.custom_minimum_size.y = 34.0
+	slider.value_changed.connect(_update_round_slider_readout.bind(value_label))
 	parent.add_child(slider)
 	return slider
 
@@ -1701,6 +1780,8 @@ func _refresh_round_design() -> void:
 	var tip_mm := float(current_projectile.get("tip_length", 0.0)) * 1000.0
 	if is_instance_valid(round_dimensions_label):
 		round_dimensions_label.text = "%s  •  Ø %0.0f MM  ×  %0.0f MM\nNOSE: %0.0f MM" % [str(current_projectile.nose).to_upper(), diameter_mm, length_mm, tip_mm]
+	if is_instance_valid(round_preview_stats):
+		round_preview_stats.text = "Ø %0.0f MM   •   LENGTH %0.0f MM   •   EST. MASS %0.2f KG" % [diameter_mm, length_mm, float(current_projectile.mass)]
 	if is_instance_valid(round_mass_label):
 		round_mass_label.text = "ESTIMATED MASS  •  %0.2f KG" % float(current_projectile.mass)
 	if is_instance_valid(round_volume_label):
