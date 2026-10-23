@@ -3,6 +3,10 @@ extends Node3D
 const PROJECTILE_SPEED := 31.0
 
 var camera: Camera3D
+var camera_focus := Vector3(0.0, 1.55, -10.0)
+var camera_yaw := 0.30
+var camera_pitch := 0.18
+var camera_distance := 25.0
 var status_label: Label
 var shot_count := 0
 var camera_dragging := false
@@ -13,6 +17,7 @@ func _ready() -> void:
 	_build_world()
 	_build_cannon()
 	_build_range()
+	_build_range_details()
 	_build_hud()
 
 
@@ -28,8 +33,8 @@ func _build_world() -> void:
 	sky_material.ground_horizon_color = Color(0.38, 0.43, 0.45)
 	environment.sky.sky_material = sky_material
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	environment.ambient_light_color = Color(0.56, 0.65, 0.78)
-	environment.ambient_light_energy = 0.55
+	environment.ambient_light_color = Color(0.67, 0.75, 0.84)
+	environment.ambient_light_energy = 0.8
 	environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	world.environment = environment
 	add_child(world)
@@ -37,15 +42,14 @@ func _build_world() -> void:
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-42.0, -28.0, 0.0)
 	sun.light_color = Color(1.0, 0.84, 0.68)
-	sun.light_energy = 1.25
+	sun.light_energy = 1.55
 	sun.shadow_enabled = true
 	add_child(sun)
 
 	camera = Camera3D.new()
-	camera.position = Vector3(11.5, 7.2, 14.5)
-	camera.fov = 48.0
+	camera.fov = 43.0
 	add_child(camera)
-	camera.look_at(Vector3(0.0, 1.7, -8.0), Vector3.UP)
+	_update_camera()
 	camera.make_current()
 
 	var ground := MeshInstance3D.new()
@@ -53,7 +57,7 @@ func _build_world() -> void:
 	ground_mesh.size = Vector2(70.0, 100.0)
 	ground.mesh = ground_mesh
 	ground.position = Vector3(0.0, -0.12, -25.0)
-	ground.material_override = _material(Color(0.19, 0.23, 0.24), 0.9, 0.0)
+	ground.material_override = _material(Color(0.29, 0.34, 0.36), 0.08, 0.92)
 	add_child(ground)
 	var ground_body := StaticBody3D.new()
 	ground_body.position = ground.position
@@ -109,8 +113,25 @@ func _build_range() -> void:
 		_add_box(self, Vector3(1.95, 0.22, -distance), Vector3(0.12, 0.42, 0.18), Color(0.92, 0.55, 0.12), 0.02, 0.58)
 	_add_target(Vector3(0.0, 2.2, -32.0), 2.5)
 	_add_target(Vector3(-5.0, 1.6, -46.0), 1.7)
-	_add_box(self, Vector3(-8.0, 0.025, -24.0), Vector3(0.12, 0.05, 48.0), Color(0.92, 0.50, 0.12), 0.0, 0.7)
-	_add_box(self, Vector3(8.0, 0.025, -24.0), Vector3(0.12, 0.05, 48.0), Color(0.92, 0.50, 0.12), 0.0, 0.7)
+	_add_box(self, Vector3(-8.0, 0.025, -24.0), Vector3(0.12, 0.05, 48.0), Color(0.96, 0.48, 0.10), 0.0, 0.7)
+	_add_box(self, Vector3(8.0, 0.025, -24.0), Vector3(0.12, 0.05, 48.0), Color(0.96, 0.48, 0.10), 0.0, 0.7)
+
+
+func _build_range_details() -> void:
+	# Raised launch deck gives the cannon a clear, readable silhouette.
+	_add_box(self, Vector3(0.0, 0.12, 0.15), Vector3(5.2, 0.24, 7.2), Color(0.25, 0.30, 0.32), 0.22, 0.82)
+	_add_box(self, Vector3(0.0, 0.255, 0.15), Vector3(4.8, 0.035, 6.8), Color(0.38, 0.42, 0.42), 0.08, 0.88)
+	for side in [-1.0, 1.0]:
+		_add_box(self, Vector3(side * 8.8, 0.38, -24.0), Vector3(0.52, 0.72, 50.0), Color(0.25, 0.31, 0.33), 0.12, 0.86)
+		_add_box(self, Vector3(side * 8.8, 0.76, -24.0), Vector3(0.57, 0.08, 50.0), Color(0.96, 0.48, 0.10), 0.04, 0.62)
+	for distance in [12.0, 24.0, 38.0]:
+		_add_box(self, Vector3(-7.25, 1.2, -distance), Vector3(0.18, 2.4, 0.18), Color(0.13, 0.19, 0.22), 0.04, 0.68)
+		_add_box(self, Vector3(-7.25, 2.45, -distance), Vector3(1.55, 0.78, 0.12), Color(0.08, 0.16, 0.20), 0.05, 0.52)
+		_add_box(self, Vector3(-7.25, 2.84, -distance - 0.07), Vector3(0.92, 0.035, 0.03), Color(0.08, 0.80, 0.95), 0.0, 0.28)
+	for distance in [-5.0, -22.0, -40.0]:
+		for side in [-1.0, 1.0]:
+			_add_box(self, Vector3(side * 9.4, 3.2, distance), Vector3(0.16, 6.4, 0.16), Color(0.16, 0.22, 0.25), 0.03, 0.62)
+		_add_box(self, Vector3(0.0, 6.35, distance), Vector3(18.8, 0.16, 0.16), Color(0.16, 0.22, 0.25), 0.03, 0.62)
 
 
 func _build_hud() -> void:
@@ -131,7 +152,7 @@ func _build_hud() -> void:
 	status_label.add_theme_color_override("font_color", Color(0.55, 0.88, 0.95))
 	stack.add_child(status_label)
 	var hint := Label.new()
-	hint.text = "Touch-drag to orbit the camera  •  Tap FIRE to test"
+	hint.text = "Drag to orbit the range  •  Fire a test shot to inspect its flight"
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	stack.add_child(hint)
 	var fire := Button.new()
@@ -148,6 +169,32 @@ func _build_hud() -> void:
 	fire.add_theme_font_size_override("font_size", 22)
 	fire.pressed.connect(_fire_test_shot)
 	layer.add_child(fire)
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventScreenTouch:
+		if event.pressed:
+			camera_dragging = event.position.x < get_viewport_rect().size.x - 250.0 and event.position.y > 145.0
+		else:
+			camera_dragging = false
+	elif event is InputEventScreenDrag and camera_dragging:
+		_orbit_camera(event.relative)
+	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		camera_dragging = event.pressed and event.position.y > 145.0
+	elif event is InputEventMouseMotion and camera_dragging and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+		_orbit_camera(event.relative)
+
+
+func _orbit_camera(relative: Vector2) -> void:
+	camera_yaw -= relative.x * 0.004
+	camera_pitch = clampf(camera_pitch + relative.y * 0.003, 0.06, 0.72)
+	_update_camera()
+
+
+func _update_camera() -> void:
+	var horizontal := camera_distance * cos(camera_pitch)
+	camera.position = camera_focus + Vector3(sin(camera_yaw) * horizontal, sin(camera_pitch) * camera_distance, cos(camera_yaw) * horizontal)
+	camera.look_at(camera_focus, Vector3.UP)
 
 
 func _fire_test_shot() -> void:
