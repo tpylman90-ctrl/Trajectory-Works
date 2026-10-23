@@ -18,6 +18,7 @@ func _ready() -> void:
 	_build_cannon()
 	_build_range()
 	_build_range_details()
+	_build_range_assets()
 	_build_hud()
 
 
@@ -186,24 +187,6 @@ func _build_range_details() -> void:
 		_add_box(self, Vector3(0.0, -0.105, distance), Vector3(36.0, 0.012, 0.018), Color(0.075, 0.105, 0.12), 0.22, 0.7)
 	for side in [-1.0, 1.0]:
 		_add_box(self, Vector3(side * 18.0, -0.105, -25.0), Vector3(0.018, 0.012, 50.0), Color(0.075, 0.105, 0.12), 0.22, 0.7)
-	# A staffed firing console gives the range a clear operator station and visual scale.
-	_add_box(self, Vector3(-4.1, 0.40, 0.38), Vector3(2.0, 0.68, 1.30), Color(0.07, 0.12, 0.16), 0.68, 0.46)
-	_add_box(self, Vector3(-4.1, 0.83, 0.16), Vector3(1.82, 0.20, 1.12), Color(0.13, 0.23, 0.28), 0.62, 0.42)
-	var console_panel := _add_box(self, Vector3(-4.1, 1.08, -0.03), Vector3(1.48, 0.72, 0.12), Color(0.025, 0.055, 0.075), 0.45, 0.3)
-	console_panel.rotation.x = deg_to_rad(24.0)
-	var console_screen := _add_box(self, Vector3(-4.1, 1.13, 0.025), Vector3(1.12, 0.39, 0.025), Color(0.08, 0.64, 0.78), 0.18, 0.24)
-	console_screen.rotation.x = deg_to_rad(24.0)
-	for index in range(5):
-		_add_box(self, Vector3(-4.52 + float(index) * 0.21, 1.02, 0.42), Vector3(0.12, 0.045, 0.11), Color(0.95 if index == 0 else 0.14, 0.32 if index == 0 else 0.63, 0.10 if index == 0 else 0.74), 0.22, 0.28)
-	_add_pipe(self, Vector3(-3.15, 0.22, 0.18), Vector3(-2.5, 0.22, -0.45), 0.095, Color(0.82, 0.34, 0.12))
-	_add_pipe(self, Vector3(-3.15, 0.18, 0.42), Vector3(-2.55, 0.18, 0.18), 0.065, Color(0.20, 0.70, 0.84))
-	# Heavy side fencing contains the test lane while leaving the open sky visible.
-	for side in [-1.0, 1.0]:
-		for distance in [-7.0, -13.0, -19.0, -25.0, -31.0, -37.0, -43.0, -49.0]:
-			_add_box(self, Vector3(side * 12.25, 1.25, distance), Vector3(0.12, 2.5, 0.16), Color(0.07, 0.12, 0.15), 0.7, 0.48)
-		_add_box(self, Vector3(side * 12.25, 0.48, -28.0), Vector3(0.12, 0.12, 42.0), Color(0.16, 0.25, 0.29), 0.72, 0.42)
-		_add_box(self, Vector3(side * 12.25, 2.15, -28.0), Vector3(0.12, 0.12, 42.0), Color(0.16, 0.25, 0.29), 0.72, 0.42)
-		_add_box(self, Vector3(side * 12.18, 0.55, -28.0), Vector3(0.035, 0.045, 42.0), Color(0.92, 0.34, 0.08), 0.2, 0.42)
 	# A pair of recessed service trenches and segmented steel covers lead the eye downrange.
 	for side in [-1.0, 1.0]:
 		_add_box(self, Vector3(side * 6.6, 0.018, -27.0), Vector3(0.62, 0.035, 46.0), Color(0.055, 0.078, 0.09), 0.55, 0.64)
@@ -228,9 +211,6 @@ func _build_range_details() -> void:
 	# Side-mounted range lights frame the lane without spanning across the shot path.
 	for distance in [-5.0, -22.0, -40.0]:
 		for side in [-1.0, 1.0]:
-			_add_box(self, Vector3(side * 10.0, 2.4, distance), Vector3(0.14, 4.8, 0.14), Color(0.16, 0.22, 0.25), 0.03, 0.62)
-			_add_box(self, Vector3(side * 10.0, 4.85, distance), Vector3(0.9, 0.12, 0.34), Color(0.16, 0.22, 0.25), 0.04, 0.55)
-			_add_box(self, Vector3(side * 10.0, 4.77, distance), Vector3(0.65, 0.035, 0.20), Color(0.35, 0.84, 0.96), 0.01, 0.24)
 			if distance != -40.0:
 				var flood := OmniLight3D.new()
 				flood.position = Vector3(side * 9.65, 4.58, distance)
@@ -248,6 +228,21 @@ func _build_range_details() -> void:
 				beam.spot_angle = 48.0
 				beam.shadow_enabled = false
 				add_child(beam)
+
+
+func _build_range_assets() -> void:
+	var path := "res://assets/generated/trajectory_range.glb"
+	if not ResourceLoader.exists(path):
+		push_warning("Detailed Blender range package is missing.")
+		return
+	var packed := load(path) as PackedScene
+	if packed == null:
+		push_warning("Detailed Blender range package could not be loaded.")
+		return
+	var imported := packed.instantiate() as Node3D
+	imported.name = "BlenderRangeSetDressing"
+	add_child(imported)
+	print("Using detailed Blender range set dressing.")
 
 
 func _build_hud() -> void:
@@ -392,15 +387,6 @@ func _add_target(at: Vector3, radius: float) -> void:
 	var center := _add_cylinder(target, Vector3(0.0, 0.0, 0.22), radius * 0.15, 0.06, Color(0.10, 0.78, 0.96), 0.12, 0.28, true)
 	center.rotation.x = PI * 0.5
 	target.position = at
-	# Armored target yoke, illuminated readouts, and a weighted ground stand.
-	_add_box(target, Vector3(0.0, 0.0, -0.22), Vector3(radius * 2.18, radius * 2.05, 0.22), Color(0.075, 0.12, 0.15), 0.68, 0.52)
-	for side in [-1.0, 1.0]:
-		_add_box(target, Vector3(side * radius * 1.04, 0.0, -0.03), Vector3(0.17, radius * 2.25, 0.32), Color(0.12, 0.21, 0.25), 0.68, 0.44)
-		_add_box(target, Vector3(side * radius * 1.04, 0.0, 0.15), Vector3(0.035, radius * 1.58, 0.035), Color(0.94, 0.37, 0.09), 0.26, 0.38)
-		_add_box(target, Vector3(side * radius * 1.04, radius * 0.88, 0.15), Vector3(0.42, 0.16, 0.38), Color(0.10, 0.69, 0.84), 0.25, 0.28)
-	_add_box(target, Vector3(0.0, radius * 1.08, -0.02), Vector3(radius * 2.25, 0.18, 0.30), Color(0.10, 0.18, 0.22), 0.62, 0.46)
-	_add_pipe(self, at + Vector3(0.0, -radius, -0.12), at + Vector3(0.0, -radius - 0.8, -0.12), 0.11, Color(0.22, 0.29, 0.31))
-	_add_box(self, at + Vector3(0.0, -radius - 0.78, 0.0), Vector3(radius * 1.6, 0.16, 1.2), Color(0.08, 0.12, 0.14), 0.62, 0.56)
 	var target_glow := OmniLight3D.new()
 	target_glow.position = at + Vector3(0.0, 0.0, 0.9)
 	target_glow.light_color = Color(0.16, 0.66, 0.88)
