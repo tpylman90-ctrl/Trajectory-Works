@@ -70,15 +70,26 @@ func _build_world() -> void:
 
 
 func _build_cannon() -> void:
-	# If Blender has already generated the GLB, use that asset. The built-in
-	# model below keeps the project runnable before the first CI asset build.
+	# Only use the Blender model when Godot imports it in the expected orientation
+	# and at the expected scale. A bad transform otherwise leaves the firing deck empty.
 	var glb_path := "res://assets/generated/trajectory_cannon.glb"
 	if ResourceLoader.exists(glb_path):
 		var packed := load(glb_path) as PackedScene
 		if packed != null:
-			var imported := packed.instantiate()
+			var imported := packed.instantiate() as Node3D
 			add_child(imported)
-			return
+			var mesh_points: Array[Vector3] = []
+			_collect_mesh_points(imported, Transform3D.IDENTITY, mesh_points)
+			if not mesh_points.is_empty():
+				var bounds := AABB(mesh_points[0], Vector3.ZERO)
+				for point in mesh_points:
+					bounds = bounds.expand(point)
+				var looks_like_cannon := bounds.size.y > 0.8 and bounds.size.y < 3.2 and bounds.size.z > 6.0 and bounds.position.z < -5.5 and bounds.end.z > 1.0 and bounds.position.y > -0.8 and bounds.end.y < 3.5
+				if looks_like_cannon:
+					print("Using Blender cannon; imported bounds: ", bounds)
+					return
+			push_warning("Blender cannon orientation/scale is invalid; using the built-in cannon model. Imported bounds: %s" % str(_bounds_from_points(mesh_points)))
+			imported.queue_free()
 
 	var cannon := Node3D.new()
 	cannon.name = "CannonPreview"
@@ -103,6 +114,28 @@ func _build_cannon() -> void:
 		_add_pipe(cannon, Vector3(side * 1.12, 0.45, -0.15), Vector3(side * 0.92, 0.78, -1.35), 0.075, Color(0.78, 0.39, 0.17))
 	_add_box(cannon, Vector3(0.0, 1.70, 0.12), Vector3(0.90, 0.16, 0.62), Color(0.12, 0.82, 0.95), 0.08, 0.24)
 	_add_box(cannon, Vector3(0.0, 0.30, -2.1), Vector3(1.15, 0.42, 1.0), Color(0.16, 0.21, 0.24), 0.14, 0.68)
+
+
+func _collect_mesh_points(node: Node3D, parent_transform: Transform3D, points: Array[Vector3]) -> void:
+	var node_transform := parent_transform * node.transform
+	if node is MeshInstance3D and (node as MeshInstance3D).mesh != null:
+		var mesh_bounds: AABB = (node as MeshInstance3D).get_aabb()
+		for x in [mesh_bounds.position.x, mesh_bounds.end.x]:
+			for y in [mesh_bounds.position.y, mesh_bounds.end.y]:
+				for z in [mesh_bounds.position.z, mesh_bounds.end.z]:
+					points.append(node_transform * Vector3(x, y, z))
+	for child in node.get_children():
+		if child is Node3D:
+			_collect_mesh_points(child as Node3D, node_transform, points)
+
+
+func _bounds_from_points(points: Array[Vector3]) -> AABB:
+	if points.is_empty():
+		return AABB()
+	var bounds := AABB(points[0], Vector3.ZERO)
+	for point in points:
+		bounds = bounds.expand(point)
+	return bounds
 
 
 func _build_range() -> void:
