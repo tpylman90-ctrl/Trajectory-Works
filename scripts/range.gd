@@ -220,8 +220,8 @@ func _build_range() -> void:
 		_add_box(self, Vector3(0.0, 0.12, -distance), Vector3(4.2, 0.24, 0.14), Color(0.12, 0.18, 0.22), 0.03, 0.7)
 		_add_box(self, Vector3(-1.95, 0.22, -distance), Vector3(0.12, 0.42, 0.18), Color(0.92, 0.55, 0.12), 0.02, 0.58)
 		_add_box(self, Vector3(1.95, 0.22, -distance), Vector3(0.12, 0.42, 0.18), Color(0.92, 0.55, 0.12), 0.02, 0.58)
-	_add_target(Vector3(0.0, 2.9, -32.0), 2.5)
-	_add_target(Vector3(-5.0, 1.6, -46.0), 1.7)
+	_add_target(Vector3(0.0, 8.0, -32.0), 2.5)
+	_add_target(Vector3(0.0, 12.0, -46.0), 1.7)
 	_add_box(self, Vector3(-8.0, 0.025, -24.0), Vector3(0.12, 0.05, 48.0), Color(0.96, 0.48, 0.10), 0.0, 0.7)
 	_add_box(self, Vector3(8.0, 0.025, -24.0), Vector3(0.12, 0.05, 48.0), Color(0.96, 0.48, 0.10), 0.0, 0.7)
 	# Extend the launch lane into a measured 2 km ballistic course.
@@ -248,10 +248,10 @@ func _build_range() -> void:
 			_add_box(self, Vector3(side * 8.0, 9.98, -distance), Vector3(0.24, 0.06, 0.26), Color(1.0, 0.36, 0.12), 0.08, 0.36)
 		_add_box(self, Vector3(0.0, 10.02, -distance), Vector3(16.0, 0.16, 0.22), Color(0.12, 0.20, 0.24), 0.36, 0.5)
 		_add_box(self, Vector3(0.0, 10.12, -distance), Vector3(3.2, 0.035, 0.25), Color(0.12, 0.84, 0.98), 0.04, 0.28)
-	_add_target(Vector3(0.0, 3.1, -250.0), 2.5)
-	_add_target(Vector3(-4.8, 2.5, -650.0), 2.1)
-	_add_target(Vector3(4.5, 3.3, -1120.0), 1.8)
-	_add_target(Vector3(0.0, 2.6, -1880.0), 1.4)
+	_add_target(Vector3(0.0, 15.0, -250.0), 2.5)
+	_add_target(Vector3(0.0, 25.0, -650.0), 2.1)
+	_add_target(Vector3(0.0, 35.0, -1120.0), 1.8)
+	_add_target(Vector3(0.0, 45.0, -1880.0), 1.4)
 
 
 func _build_range_details() -> void:
@@ -526,7 +526,7 @@ func _fire_test_shot() -> void:
 	projectile.linear_velocity = muzzle_forward * speed_slider.value
 	projectile.set_meta("design", design)
 	projectile.set_meta("wind_x", wind_slider.value)
-	active_shots[projectile.get_instance_id()] = {"body": projectile, "time": 0.0, "max_height": projectile.global_position.y, "origin": projectile.global_position, "design": design}
+	active_shots[projectile.get_instance_id()] = {"body": projectile, "number": shot_count, "time": 0.0, "max_height": projectile.global_position.y, "origin": projectile.global_position, "design": design}
 	analysis_label.text = "IN FLIGHT  •  %.1F KG / %.0F MM / Cd %.2F" % [design.mass, design.diameter * 1000.0, design.cd]
 	get_tree().create_timer(20.0).timeout.connect(func(): _remove_projectile(projectile))
 
@@ -581,7 +581,7 @@ func _on_projectile_body_entered(body: Node, projectile: RigidBody3D) -> void:
 	var result := "IMPACT • %.1F M • X %+.1F M" % [-displacement.z, displacement.x]
 	if body.is_in_group("range_targets"):
 		result = "TARGET HIT • %.1F M • X %+.1F M" % [-displacement.z, displacement.x]
-	status_label.text = "SHOT %02d  •  %s" % [shot_count, result]
+	status_label.text = "SHOT %02d  •  %s" % [shot.number, result]
 	var impact_speed := projectile.linear_velocity.length()
 	analysis_label.text = "%s\nTIME %.2F S  •  APEX %.1F M\nIMPACT %.0F M/S (MACH %.2F)\nMASS %.1F KG  •  Cd %.2F" % [result, shot.time, shot.max_height, impact_speed, impact_speed / SEA_LEVEL_SOUND_SPEED, shot.design.mass, shot.design.cd]
 	active_shots.erase(shot_id)
@@ -616,6 +616,16 @@ func _add_target(at: Vector3, radius: float) -> void:
 	target_body.add_child(hit_area)
 	target.add_child(target_body)
 	target.position = at
+	# Tall instrument stations stand on cross-braced towers, leaving the firing
+	# centerline open for low-angle shots to travel the full two-kilometre lane.
+	var support_half_width := radius * 0.68
+	var tower_bottom := maxf(0.0, at.y - radius)
+	for side in [-1.0, 1.0]:
+		var lower := Vector3(at.x + side * support_half_width, 0.15, at.z)
+		var upper := at + Vector3(side * support_half_width, -radius, 0.0)
+		_add_pipe(self, lower, upper, maxf(0.075, radius * 0.055), Color(0.10, 0.18, 0.23))
+	for brace_height in range(2, int(tower_bottom), 5):
+		_add_pipe(self, Vector3(at.x - support_half_width, float(brace_height), at.z), Vector3(at.x + support_half_width, float(brace_height), at.z), 0.045, Color(0.22, 0.31, 0.35))
 	var target_glow := OmniLight3D.new()
 	target_glow.position = at + Vector3(0.0, 0.0, 0.9)
 	target_glow.light_color = Color(0.16, 0.66, 0.88)
