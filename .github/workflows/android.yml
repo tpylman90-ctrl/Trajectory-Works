@@ -46,6 +46,17 @@ jobs:
         run: |
           sdkmanager --install "platform-tools" "build-tools;35.0.1" "platforms;android-35" "cmdline-tools;latest" "cmake;3.10.2.4988404" "ndk;28.1.13356709"
 
+      - name: Configure Android SDK paths for Godot
+        run: |
+          mkdir -p "$HOME/.config/godot"
+          cat > "$HOME/.config/godot/editor_settings-4.tres" <<EOF
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+          export/android/android_sdk_path = "$ANDROID_HOME"
+          export/android/java_sdk_path = "$JAVA_HOME"
+          EOF
+
       - name: Install Godot and export templates
         run: |
           GODOT_ARCHIVE="Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
@@ -92,7 +103,7 @@ jobs:
           mkdir -p build
           sed -i "s#^version/code=.*#version/code=${GITHUB_RUN_NUMBER}#" export_presets.cfg
           sed -i "s#^version/name=.*#version/name=\"0.1.${GITHUB_RUN_NUMBER}\"#" export_presets.cfg
-          godot --headless --path . --export-release Android build/Trajectory-Works.apk
+          godot --headless --verbose --path . --export-release Android build/Trajectory-Works.apk
           test -s build/Trajectory-Works.apk
 
       - name: Upload APK
