@@ -33,7 +33,7 @@ def cable_run(name, points, radius, mat):
 
 
 def add_launch_deck(mats):
-    dark, steel, blue, enamel, screen, amber, copper = mats[:7][:7]
+    dark, steel, blue, enamel, screen, amber, copper = mats[:7]
     concrete = mats[7]
     # A wider poured pad leaves a visible concrete lip around the raised steel skid.
     box("Launch pad | poured reinforced concrete plinth", (0.0, 0.035, 0.15), (6.35, 0.17, 8.35), concrete, 0.12)
