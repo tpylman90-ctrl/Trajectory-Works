@@ -33,7 +33,13 @@ def cable_run(name, points, radius, mat):
 
 
 def add_launch_deck(mats):
-    dark, steel, blue, enamel, screen, amber, copper = mats
+    dark, steel, blue, enamel, screen, amber, copper = mats[:7][:7]
+    concrete = mats[7]
+    # A wider poured pad leaves a visible concrete lip around the raised steel skid.
+    box("Launch pad | poured reinforced concrete plinth", (0.0, 0.035, 0.15), (6.35, 0.17, 8.35), concrete, 0.12)
+    for x in (-2.75, 2.75):
+        for z in (-3.45, 3.75):
+            box("Launch pad | chamfered anchor block", (x, 0.10, z), (0.56, 0.22, 0.58), concrete, 0.075)
     # Layered steel foundation with bevels large enough to catch the range lights.
     box("Launch deck | structural foundation", (0.0, 0.12, 0.15), (5.2, 0.24, 7.2), dark, 0.15)
     box("Launch deck | armored top plate", (0.0, 0.255, 0.15), (4.82, 0.045, 6.84), enamel, 0.085)
@@ -67,8 +73,28 @@ def add_launch_deck(mats):
                 box("Launch deck | hazard dash", (-1.35 + stripe * 0.17, 0.298, z + 0.15), (0.10, 0.014, 0.48), amber, 0.008)
 
 
+def add_access_stairs(mats):
+    dark, steel, blue, enamel, screen, amber, copper = mats[:7]
+    # Five compact anti-slip steps bridge the concrete pad and the armored skid.
+    stair_z = 0.22
+    for index in range(5):
+        x = 3.55 - index * 0.20
+        y = 0.035 + index * 0.048
+        box("Launch access | steel step", (x, y, stair_z), (0.27, 0.065, 1.12), dark, 0.025)
+        box("Launch access | amber nosing", (x - 0.12, y + 0.037, stair_z), (0.035, 0.016, 1.02), amber, 0.008)
+        for z_side in (-0.45, 0.45):
+            common.fastener("Launch access | step bolt", (x, y + 0.039, stair_z + z_side), (0.0, 1.0, 0.0), 0.022, steel)
+    # Box stringers and handrails give the steps a convincing load path.
+    for side in (-1, 1):
+        z = stair_z + side * 0.66
+        rod("Launch access | stair stringer", (3.90, 0.015, z), (2.28, 0.26, z), 0.075, blue)
+        rod("Launch access | handrail upright", (3.82, 0.10, z), (3.82, 0.74, z), 0.045, steel)
+        rod("Launch access | handrail upright", (2.38, 0.24, z), (2.38, 0.74, z), 0.045, steel)
+        rod("Launch access | amber handrail", (3.82, 0.74, z), (2.38, 0.74, z), 0.035, copper)
+
+
 def add_warehouse_shells(mats):
-    dark, steel, blue, enamel, screen, amber, copper = mats
+    dark, steel, blue, enamel, screen, amber, copper = mats[:7]
     for side in (-1, 1):
         x, z = side * 14.3, -51.5
         # Heavy service hangar with layered facade plates, buttresses, and roof plant.
@@ -102,7 +128,7 @@ def add_warehouse_shells(mats):
 
 
 def add_console(mats):
-    dark, steel, blue, enamel, screen, amber, copper = mats
+    dark, steel, blue, enamel, screen, amber, copper = mats[:7]
     # Grounded operator plinth and angled instrument deck.
     box("Console | weighted plinth", (-4.15, 0.18, 0.42), (2.24, 0.36, 1.62), dark, 0.10)
     box("Console | armored pedestal", (-4.15, 0.70, 0.40), (1.92, 0.78, 1.28), blue, 0.16)
@@ -140,7 +166,7 @@ def add_console(mats):
 
 
 def add_flood_towers(mats):
-    dark, steel, blue, enamel, screen, amber, copper = mats
+    dark, steel, blue, enamel, screen, amber, copper = mats[:7]
     for side in (-1, 1):
         for index, z in enumerate((-5.0, -22.0, -40.0)):
             x = side * 10.0
@@ -171,7 +197,7 @@ def add_flood_towers(mats):
 
 
 def add_fencing(mats):
-    dark, steel, blue, enamel, screen, amber, copper = mats
+    dark, steel, blue, enamel, screen, amber, copper = mats[:7]
     for side in (-1, 1):
         x = side * 12.25
         for index in range(8):
@@ -194,33 +220,8 @@ def add_fencing(mats):
                 rod("Range fence | tension wire", (x - side * 0.045, y, z0), (x - side * 0.045, y, z1), 0.010, steel, 12)
 
 
-def add_target_service_frames(mats):
-    dark, steel, blue, enamel, screen, amber, copper = mats
-    for target_z, radius in ((-32.0, 2.5), (-46.0, 1.7)):
-        frame_z = target_z - 0.62
-        width = radius * 2.55
-        height = radius * 2.70
-        # Feet, shoulders, and high crossbeam support the rotating target carriage.
-        for side in (-1, 1):
-            x = side * width * 0.5
-            box("Target carriage | outrigger foot", (x, 0.17, frame_z), (1.05, 0.30, 1.45), dark, 0.10)
-            rod("Target carriage | outer strut", (x, 0.22, frame_z), (x, height, frame_z), 0.10, steel)
-            rod("Target carriage | diagonal brace", (x, 0.28, frame_z + 0.38), (side * width * 0.22, height * 0.72, frame_z + 0.38), 0.064, blue)
-            rod("Target carriage | diagonal brace", (x, 0.28, frame_z - 0.38), (side * width * 0.22, height * 0.72, frame_z - 0.38), 0.064, blue)
-            box("Target carriage | pivot armor", (x, radius * 1.06, frame_z + 0.12), (0.46, 0.68, 0.42), blue, 0.08)
-            # Two visible hydraulic rams explain how the plate is raised and locked.
-            rod("Target carriage | ram sleeve", (side * radius * 0.72, 0.35, frame_z + 0.02), (side * radius * 0.72, radius * 1.15, frame_z + 0.02), 0.13, dark)
-            rod("Target carriage | ram piston", (side * radius * 0.72, radius * 0.56, frame_z + 0.02), (side * radius * 0.72, radius * 1.28, frame_z + 0.02), 0.065, copper)
-            for y in (0.40, radius * 1.08):
-                common.torus("Target carriage | actuator collar", (side * radius * 0.72, y, frame_z + 0.02), 0.14, 0.025, steel)
-        box("Target carriage | crown beam", (0.0, height, frame_z), (width + 0.70, 0.36, 0.72), dark, 0.11)
-        box("Target carriage | cyan status bar", (0.0, height - 0.02, frame_z + 0.38), (width * 0.58, 0.055, 0.028), screen, 0.012)
-        for side in (-1, 1):
-            box("Target carriage | amber warning lamp", (side * width * 0.43, height, frame_z + 0.39), (0.16, 0.22, 0.07), amber, 0.025)
-
-
 def add_equipment_crates(mats):
-    dark, steel, blue, enamel, screen, amber, copper = mats
+    dark, steel, blue, enamel, screen, amber, copper = mats[:7]
     crates = ((3.8, 0.0, 1.5, 1.35), (5.3, 0.0, -1.4, 1.05), (-6.2, 0.0, 2.5, 1.15))
     for x, _, z, scale in crates:
         box("Field crate | armored body", (x, scale * 0.48, z), (scale * 1.52, scale * 0.92, scale), blue, 0.09)
@@ -244,13 +245,14 @@ def build():
     screen = common.material("Range | cyan phosphor", (0.12, 0.76, 0.95), 0.22, 0.21, (0.10, 0.72, 1.0))
     amber = common.material("Range | amber hazard light", (1.0, 0.29, 0.045), 0.26, 0.24, (0.95, 0.16, 0.015))
     copper = common.material("Range | exposed copper alloy", (0.65, 0.22, 0.095), 0.74, 0.30)
-    mats = (dark, steel, blue, enamel, screen, amber, copper)
+    concrete = common.material("Launch pad | weathered concrete", (0.19, 0.22, 0.23), 0.04, 0.86)
+    mats = (dark, steel, blue, enamel, screen, amber, copper, concrete)
     add_launch_deck(mats)
+    add_access_stairs(mats)
     add_console(mats)
     add_warehouse_shells(mats)
     add_flood_towers(mats)
     add_fencing(mats)
-    add_target_service_frames(mats)
     add_equipment_crates(mats)
 
     # Apply bevels, then merge each material family to keep mobile draw calls low.
