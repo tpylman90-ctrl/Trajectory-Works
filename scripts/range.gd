@@ -10,10 +10,10 @@ const PROJECTILE_TYPES := [
 ]
 
 var camera: Camera3D
-var camera_focus := Vector3(0.0, 3.0, -210.0)
+var camera_focus := Vector3(0.0, 1.8, -16.0)
 var camera_yaw := 0.20
-var camera_pitch := 0.22
-var camera_distance := 185.0
+var camera_pitch := 0.24
+var camera_distance := 34.0
 var status_label: Label
 var analysis_label: Label
 var projectile_picker: OptionButton
@@ -349,9 +349,9 @@ func _build_hud() -> void:
 	stack.add_child(speed_value_label)
 	speed_slider = HSlider.new()
 	speed_slider.min_value = 250.0
-	speed_slider.max_value = 1500.0
-	speed_slider.step = 10.0
-	speed_slider.value = 700.0
+	speed_slider.max_value = 3000.0
+	speed_slider.step = 25.0
+	speed_slider.value = 1800.0
 	speed_slider.value_changed.connect(_on_speed_changed)
 	stack.add_child(speed_slider)
 	elevation_value_label = Label.new()
@@ -360,7 +360,7 @@ func _build_hud() -> void:
 	elevation_slider.min_value = -1.0
 	elevation_slider.max_value = 15.0
 	elevation_slider.step = 0.1
-	elevation_slider.value = 0.7
+	elevation_slider.value = 0.2
 	elevation_slider.value_changed.connect(_on_elevation_changed)
 	stack.add_child(elevation_slider)
 	wind_value_label = Label.new()
