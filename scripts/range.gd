@@ -164,25 +164,6 @@ func _build_range() -> void:
 
 
 func _build_range_details() -> void:
-	# Raised launch deck gives the cannon a clear, readable silhouette.
-	_add_box(self, Vector3(0.0, 0.12, 0.15), Vector3(5.2, 0.24, 7.2), Color(0.25, 0.30, 0.32), 0.22, 0.82)
-	_add_box(self, Vector3(0.0, 0.255, 0.15), Vector3(4.8, 0.035, 6.8), Color(0.38, 0.42, 0.42), 0.08, 0.88)
-	for side in [-1.0, 1.0]:
-		_add_box(self, Vector3(side * 8.8, 0.16, -24.0), Vector3(0.38, 0.32, 50.0), Color(0.25, 0.31, 0.33), 0.12, 0.86)
-		_add_box(self, Vector3(side * 8.8, 0.34, -24.0), Vector3(0.42, 0.045, 50.0), Color(0.96, 0.48, 0.10), 0.04, 0.62)
-	for distance in [12.0, 24.0, 38.0]:
-		_add_box(self, Vector3(-7.25, 1.2, -distance), Vector3(0.18, 2.4, 0.18), Color(0.13, 0.19, 0.22), 0.04, 0.68)
-		_add_box(self, Vector3(-7.25, 2.45, -distance), Vector3(1.55, 0.78, 0.12), Color(0.08, 0.16, 0.20), 0.05, 0.52)
-		_add_box(self, Vector3(-7.25, 2.84, -distance - 0.07), Vector3(0.92, 0.035, 0.03), Color(0.08, 0.80, 0.95), 0.0, 0.28)
-	# Recessed lane strips and deck edge markings give the firing line a designed, industrial read.
-	for side in [-1.0, 1.0]:
-		_add_box(self, Vector3(side * 2.34, 0.285, 0.15), Vector3(0.055, 0.025, 6.45), Color(0.96, 0.39, 0.09), 0.28, 0.38)
-		_add_box(self, Vector3(side * 2.22, 0.284, 0.15), Vector3(0.035, 0.022, 6.18), Color(0.15, 0.75, 0.90), 0.35, 0.32)
-	# Launch-deck jacks, flush panel seams, and hazard corners make the cannon feel installed.
-	for side in [-1.0, 1.0]:
-		for fore in [-1.0, 1.0]:
-			_add_box(self, Vector3(side * 2.05, 0.13, 0.15 + fore * 2.75), Vector3(0.34, 0.34, 0.42), Color(0.065, 0.10, 0.13), 0.64, 0.55)
-			_add_box(self, Vector3(side * 2.34, 0.282, 0.15 + fore * 3.05), Vector3(0.18, 0.025, 0.62), Color(0.94, 0.35, 0.08), 0.2, 0.42)
 	for distance in [-5.0, -10.0, -15.0, -20.0, -25.0, -30.0, -35.0, -40.0, -45.0]:
 		_add_box(self, Vector3(0.0, -0.105, distance), Vector3(36.0, 0.012, 0.018), Color(0.075, 0.105, 0.12), 0.22, 0.7)
 	for side in [-1.0, 1.0]:
@@ -200,14 +181,6 @@ func _build_range_details() -> void:
 			_add_box(self, Vector3(side * 9.6, 3.12, distance + 0.16), Vector3(0.055, 5.5, 0.025), Color(0.94, 0.34, 0.08), 0.25, 0.4)
 		_add_box(self, Vector3(0.0, 6.15, distance), Vector3(19.2, 0.24, 0.28), Color(0.075, 0.12, 0.16), 0.62, 0.46)
 		_add_box(self, Vector3(0.0, 6.0, distance + 0.16), Vector3(18.2, 0.045, 0.035), Color(0.10, 0.66, 0.82), 0.2, 0.35)
-	# Distant utility buildings and stacked luminaires break up the bare horizon.
-	for side in [-1.0, 1.0]:
-		_add_box(self, Vector3(side * 14.3, 2.8, -51.5), Vector3(5.6, 5.6, 7.4), Color(0.075, 0.12, 0.16), 0.42, 0.72)
-		_add_box(self, Vector3(side * 14.3, 5.65, -51.5), Vector3(6.0, 0.18, 7.8), Color(0.12, 0.19, 0.23), 0.66, 0.48)
-		for floor_y in [1.7, 2.65, 3.6]:
-			_add_box(self, Vector3(side * 14.3, floor_y, -47.72), Vector3(3.8, 0.38, 0.035), Color(0.13, 0.53, 0.64), 0.22, 0.32)
-		for side_offset in [-1.0, 1.0]:
-			_add_box(self, Vector3(side * 14.3 + side_offset * 1.7, 1.0, -47.6), Vector3(0.12, 1.8, 0.10), Color(0.20, 0.29, 0.33), 0.65, 0.45)
 	# Side-mounted range lights frame the lane without spanning across the shot path.
 	for distance in [-5.0, -22.0, -40.0]:
 		for side in [-1.0, 1.0]:
