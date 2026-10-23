@@ -180,12 +180,10 @@ func _build_cannon() -> void:
 			imported.scale.z = 0.5
 			imported.position.y = 0.385
 			add_child(imported)
-			# The GLB's firing-axis correction belongs to the emitter only.
-			# Cancel it on the fixed base group so the skid remains level on the deck.
+			# Keep the base's authored orientation under the shared import correction:
+			# its underside then points down while the emitter remains aligned with the lane.
 			var base_assembly := imported.find_child("CannonBaseAssembly", true, false) as Node3D
-			if is_instance_valid(base_assembly):
-				base_assembly.rotation.x += PI * 0.5
-			else:
+			if not is_instance_valid(base_assembly):
 				push_warning("Cannon base transform group is missing from the imported model.")
 			barrel_pivot = imported.find_child("ElevationPivot", true, false) as Node3D
 			if is_instance_valid(barrel_pivot):
