@@ -1847,7 +1847,9 @@ func _refresh_round_design() -> void:
 		var mesh_instance := MeshInstance3D.new()
 		mesh_instance.name = "Live machined round preview"
 		mesh_instance.mesh = _build_round_mesh(current_projectile)
-		mesh_instance.material_override = _material(current_projectile.color, 0.76, 0.27)
+		var preview_material := _material(current_projectile.color, 0.76, 0.27)
+		preview_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+		mesh_instance.material_override = preview_material
 		round_preview_spin.add_child(mesh_instance)
 		round_preview_model = mesh_instance
 		var preview_camera := round_preview_view.get_camera_3d()
