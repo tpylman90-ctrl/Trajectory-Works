@@ -79,6 +79,10 @@ var ground_render_size := 100000.0
 var ground_home := Vector3(0.0, -0.12, 0.0)
 var shot_history: Array[Dictionary] = []
 var review_layer: CanvasLayer
+var review_panel: PanelContainer
+var review_panel_wide_layout := false
+var review_ui_scale := 0.85
+var review_ui_scale_picker: OptionButton
 var review_summary: Label
 var review_compare: Label
 var review_plot: FlightPlot
@@ -596,15 +600,13 @@ func _show_shot_review() -> void:
 	var panel := PanelContainer.new()
 	var viewport_size := get_viewport().get_visible_rect().size
 	var review_width := minf(600.0, viewport_size.x - 32.0)
-	var wide_layout := viewport_size.x >= 1100.0
+	review_panel_wide_layout = viewport_size.x >= 1100.0
+	review_panel = panel
 	panel.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	panel.custom_minimum_size = Vector2(review_width, 0.0)
-	if wide_layout:
-		panel.position = Vector2(viewport_size.x - review_width - 26.0, 22.0)
-	else:
-		panel.position = Vector2(16.0, 22.0)
-		if is_instance_valid(range_hud_panel):
-			range_hud_panel.hide()
+	panel.position = Vector2(16.0, 22.0)
+	if not review_panel_wide_layout and is_instance_valid(range_hud_panel):
+		range_hud_panel.hide()
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color(0.008, 0.024, 0.034, 0.91)
 	style.border_color = Color(0.16, 0.78, 0.92, 0.9)
@@ -627,6 +629,7 @@ func _show_shot_review() -> void:
 	review_summary.add_theme_color_override("font_color", Color(0.84, 0.92, 0.95))
 	stack.add_child(review_summary)
 	review_compare = Label.new()
+	review_compare.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	review_compare.add_theme_color_override("font_color", Color(1.0, 0.66, 0.30))
 	stack.add_child(review_compare)
 	review_plot = FlightPlot.new()
@@ -669,6 +672,16 @@ func _show_shot_review() -> void:
 	replay_view_picker.select(0)
 	replay_view_picker.item_selected.connect(_on_replay_view_selected)
 	view_row.add_child(replay_view_picker)
+	var size_label := Label.new()
+	size_label.text = "PANEL SIZE"
+	size_label.custom_minimum_size = Vector2(90.0, 0.0)
+	view_row.add_child(size_label)
+	review_ui_scale_picker = OptionButton.new()
+	for size_name in ["Compact", "Standard", "Large"]:
+		review_ui_scale_picker.add_item(size_name)
+	review_ui_scale_picker.select(1)
+	review_ui_scale_picker.item_selected.connect(_on_review_ui_scale_selected)
+	view_row.add_child(review_ui_scale_picker)
 	replay_camera_scale_label = Label.new()
 	replay_camera_scale_label.text = "CAMERA DISTANCE  •  %0.1f×" % replay_camera_scale
 	stack.add_child(replay_camera_scale_label)
@@ -687,10 +700,12 @@ func _show_shot_review() -> void:
 	stack.add_child(replay_scrubber)
 	var axes := Label.new()
 	axes.text = "FLIGHT PROFILE  •  ALTITUDE VS DOWNRANGE     ORANGE: LAUNCH   CYAN: PATH   GREEN: END"
+	axes.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	axes.add_theme_font_size_override("font_size", 12)
 	axes.add_theme_color_override("font_color", Color(0.55, 0.79, 0.85))
 	stack.add_child(axes)
 	_update_review_text()
+	_apply_review_panel_scale()
 
 
 func _update_review_text() -> void:
@@ -702,7 +717,7 @@ func _update_review_text() -> void:
 		var previous: Dictionary = shot_history[shot_history.size() - 2]
 		review_compare.text = "VS SHOT %02d  •  RANGE %+0.1f M  •  APEX %+0.1f M  •  IMPACT SPEED %+0.1f M/S" % [previous.shot, float(shot.range) - float(previous.range), float(shot.apex) - float(previous.apex), float(shot.impact_speed) - float(previous.impact_speed)]
 	else:
-		review_compare.text = "SHOT HISTORY  •  FIRE AGAIN TO COMPARE THIS ROUND WITH YOUR NEXT DESIGN"
+		review_compare.text = "SHOT HISTORY  •  FIRE AGAIN TO COMPARE DESIGNS"
 
 
 func _toggle_replay_path() -> void:
@@ -724,6 +739,24 @@ func _on_replay_view_selected(index: int) -> void:
 		return
 	replay_camera_view = views[index]
 	_update_replay_pose()
+
+
+func _on_review_ui_scale_selected(index: int) -> void:
+	var scales := [0.70, 0.85, 1.0]
+	review_ui_scale = float(scales[clampi(index, 0, scales.size() - 1)])
+	_apply_review_panel_scale()
+
+
+func _apply_review_panel_scale() -> void:
+	if is_instance_valid(review_panel):
+		review_panel.scale = Vector2.ONE * review_ui_scale
+		var viewport_width := get_viewport().get_visible_rect().size.x
+		if review_panel_wide_layout:
+			review_panel.position.x = viewport_width - review_panel.custom_minimum_size.x * review_ui_scale - 26.0
+		else:
+			review_panel.position.x = 16.0
+	if is_instance_valid(range_hud_panel):
+		range_hud_panel.scale = Vector2.ONE * review_ui_scale
 
 
 func _build_replay_path() -> void:
@@ -759,6 +792,7 @@ func _close_shot_review() -> void:
 	if is_instance_valid(review_layer):
 		review_layer.queue_free()
 	review_layer = null
+	review_panel = null
 	if is_instance_valid(range_hud_panel):
 		range_hud_panel.show()
 
