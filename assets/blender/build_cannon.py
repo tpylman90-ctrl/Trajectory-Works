@@ -307,11 +307,11 @@ def build():
         cylinder_between("Regulator cap", (x, 0.95, 0.57), (x, 1.06, 0.57), 0.09, fastener_metal)
         cylinder_between("Regulator indicator", (x, 1.06, 0.57), (x, 1.075, 0.57), 0.045, cyan, vertices=32)
 
-    # Export the emitter as a driven assembly so Godot can elevate the actual
-    # barrel from its trunnion while leaving the pressure housing fixed.
+    # Pivot around the actual trunnion center, not the barrel throat. This keeps
+    # the breech seated in the yoke as elevation changes in Godot.
     pivot = bpy.data.objects.new("ElevationPivot", None)
     bpy.context.collection.objects.link(pivot)
-    pivot.location = (0.0, 1.17, -0.82)
+    pivot.location = (0.0, 0.94, 0.30)
     pivot.empty_display_type = "CIRCLE"
     pivot.empty_display_size = 0.24
     pivot_parts = (
