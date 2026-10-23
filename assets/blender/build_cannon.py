@@ -186,6 +186,25 @@ def build():
     cube("Service panel", (0.0, 1.55, 0.38), (1.2, 0.055, 0.62), dark, 0.04)
     cube("Status display", (0.0, 1.56, 0.36), (0.82, 0.025, 0.34), cyan, 0.025)
 
+    # Finished breech assembly: pressure cap, lock ring, cooling vents, and service plate.
+    cube("Breech rear service plate", (0.0, 1.02, 0.93), (1.42, 0.98, 0.12), blue_edge, 0.10)
+    for side in (-1, 1):
+        for index in range(4):
+            cube(
+                "Breech cooling vent",
+                (side * (0.42 + index * 0.045), 0.88, 1.005),
+                (0.045, 0.42, 0.035), graphite, 0.016
+            )
+        cube("Breech rear shoulder", (side * 0.75, 1.37, 0.98), (0.30, 0.24, 0.18), ceramic, 0.06)
+    cylinder_between("Breech pressure cap", (0.0, 1.16, 0.94), (0.0, 1.16, 1.13), 0.39, dark)
+    torus("Breech locking ring", (0.0, 1.16, 1.13), 0.34, 0.045, copper)
+    cylinder_between("Breech inspection plate", (0.0, 1.16, 1.13), (0.0, 1.16, 1.16), 0.26, blue_edge)
+    torus("Breech indicator bezel", (0.0, 1.16, 1.16), 0.17, 0.025, fastener_metal)
+    cylinder_between("Breech status lens", (0.0, 1.16, 1.16), (0.0, 1.16, 1.18), 0.105, cyan, vertices=48)
+    cube("Breech ID plaque", (0.0, 1.58, 0.99), (0.78, 0.12, 0.045), dark, 0.025)
+    for side in (-1, 1):
+        fastener("Breech plate screw", (side * 0.59, 1.40, 1.01), (0.0, 0.0, 1.0), 0.035, fastener_metal)
+
     # Fasteners and recessed seams give the armor readable scale and assembly logic.
     for side in (-1, 1):
         for y in (0.57, 1.28):
@@ -238,11 +257,8 @@ def build():
             (0, 0, -1), 0.028, fastener_metal
         )
 
-    # Structural barrel cradles, support feet, bolts, and a small gauge.
-    for z in (-2.0, -4.8):
-        cube("Barrel cradle crossbeam", (0.0, 0.55, z), (1.35, 0.20, 0.26), dark, 0.045)
-        for side in (-1, 1):
-            cube("Angled support", (side * 0.48, 0.42, z + 0.18), (0.18, 0.54, 0.56), blue_edge, 0.035)
+    # The shroud is cantilevered cleanly from the receiver; its bands carry the load visually.
+    # Detached mid-barrel posts were removed so the underside silhouette stays intentional.
     cylinder_between("Gauge stem", (0.68, 1.30, 0.48), (0.80, 1.55, 0.48), 0.045, tube)
     cylinder_between("Pressure gauge body", (0.80, 1.55, 0.48), (0.80, 1.73, 0.48), 0.17, dark)
     cylinder_between("Gauge face", (0.80, 1.73, 0.48), (0.80, 1.76, 0.48), 0.12, tube)
