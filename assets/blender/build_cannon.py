@@ -10,14 +10,55 @@ ROOT = Path(__file__).resolve().parents[2]
 OUTPUT = ROOT / "assets" / "generated" / "trajectory_cannon.glb"
 
 
+def finish_texture(name, color, roughness):
+    # Small tileable image maps add subtle enamel grain without heavy geometry.
+    # They are packed into the GLB so the mobile game has no loose dependencies.
+    size = 128
+    color_image = bpy.data.images.new(name + " | enamel grain", width=size, height=size, alpha=False)
+    rough_image = bpy.data.images.new(name + " | micro roughness", width=size, height=size, alpha=False)
+    color_image.colorspace_settings.name = "sRGB"
+    rough_image.colorspace_settings.name = "Non-Color"
+    color_pixels = []
+    rough_pixels = []
+    for y in range(size):
+        for x in range(size):
+            u, v = x / size, y / size
+            grain = (
+                math.sin(math.tau * (u * 19.0 + v * 7.0))
+                + math.sin(math.tau * (u * 43.0 - v * 31.0)) * 0.45
+                + math.sin(math.tau * (u * 71.0 + v * 53.0)) * 0.22
+            ) / 1.67
+            tint = 1.0 + grain * 0.035
+            color_pixels.extend((min(1.0, channel * tint) for channel in color))
+            color_pixels.append(1.0)
+            r = max(0.04, min(0.96, roughness + grain * 0.05))
+            rough_pixels.extend((r, r, r, 1.0))
+    color_image.pixels.foreach_set(color_pixels)
+    rough_image.pixels.foreach_set(rough_pixels)
+    color_image.pack()
+    rough_image.pack()
+    return color_image, rough_image
+
+
 def material(name, color, metallic=0.0, roughness=0.45, emission=None):
     mat = bpy.data.materials.new(name)
     mat.diffuse_color = (*color, 1.0)
     mat.use_nodes = True
-    shader = mat.node_tree.nodes.get("Principled BSDF")
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+    shader = nodes.get("Principled BSDF")
     shader.inputs["Base Color"].default_value = (*color, 1.0)
     shader.inputs["Metallic"].default_value = metallic
     shader.inputs["Roughness"].default_value = roughness
+    color_image, rough_image = finish_texture(name, color, roughness)
+    color_node = nodes.new("ShaderNodeTexImage")
+    color_node.name = name + " | enamel grain"
+    color_node.image = color_image
+    rough_node = nodes.new("ShaderNodeTexImage")
+    rough_node.name = name + " | micro roughness"
+    rough_node.image = rough_image
+    links.new(color_node.outputs["Color"], shader.inputs["Base Color"])
+    links.new(rough_node.outputs["Color"], shader.inputs["Roughness"])
     if emission:
         shader.inputs["Emission Color"].default_value = (*emission, 1.0)
         shader.inputs["Emission Strength"].default_value = 1.5
@@ -147,7 +188,7 @@ def build():
         y = 1.17
         z = -0.95 - index * 0.27
         torus("Copper induction coil %02d" % (index + 1), (0.0, y, z), 0.39, 0.055, copper)
-    torus("Muzzle field indicator", (0.0, 1.17, -6.82), 0.36, 0.035, cyan)
+    torus("Muzzle field indicator", (0.0, 1.17, -6.98), 0.36, 0.035, cyan)
 
     # Twin pressure accumulators and protective saddles.
     for side in (-1, 1):
