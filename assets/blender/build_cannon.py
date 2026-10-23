@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import math
+import random
 import bpy
 from mathutils import Matrix, Vector
 
@@ -13,7 +14,9 @@ OUTPUT = ROOT / "assets" / "generated" / "trajectory_cannon.glb"
 def finish_texture(name, color, roughness):
     # Small tileable image maps add subtle enamel grain without heavy geometry.
     # They are packed into the GLB so the mobile game has no loose dependencies.
-    size = 128
+    size = 512
+    seed = sum((index + 1) * ord(char) for index, char in enumerate(name))
+    rng = random.Random(seed)
     color_image = bpy.data.images.new(name + " | enamel grain", width=size, height=size, alpha=False)
     rough_image = bpy.data.images.new(name + " | micro roughness", width=size, height=size, alpha=False)
     color_image.colorspace_settings.name = "sRGB"
@@ -28,10 +31,11 @@ def finish_texture(name, color, roughness):
                 + math.sin(math.tau * (u * 43.0 - v * 31.0)) * 0.45
                 + math.sin(math.tau * (u * 71.0 + v * 53.0)) * 0.22
             ) / 1.67
-            tint = 1.0 + grain * 0.035
-            color_pixels.extend((min(1.0, channel * tint) for channel in color))
+            micrograin = rng.uniform(-1.0, 1.0)
+            tint = 1.0 + grain * 0.035 + micrograin * 0.012
+            color_pixels.extend((max(0.0, min(1.0, channel * tint)) for channel in color))
             color_pixels.append(1.0)
-            r = max(0.04, min(0.96, roughness + grain * 0.05))
+            r = max(0.04, min(0.96, roughness + grain * 0.05 + micrograin * 0.035))
             rough_pixels.extend((r, r, r, 1.0))
     color_image.pixels.foreach_set(color_pixels)
     rough_image.pixels.foreach_set(rough_pixels)
