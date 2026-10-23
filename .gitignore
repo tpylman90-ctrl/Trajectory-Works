@@ -1,0 +1,26 @@
+# Godot generated files
+.godot/
+android/build/
+build/
+export.cfg
+export_presets.cfg.bak
+
+# Blender temporary and generated binary files
+*.blend1
+*.blend2
+assets/generated/*.glb.import
+
+# Android signing material
+*.keystore
+*.jks
+*.p12
+*.pfx
+*.apk
+*.aab
+
+# Local environment files
+.env
+.env.*
+!.env.example
+__pycache__/
+.DS_Store
