@@ -6,11 +6,12 @@ Design a projectile, make a prediction, fire it from a striking gas cannon, then
 
 ## First playable slice
 
-- One semi-realistic gas cannon in a polished outdoor test lane.
-- A 3D range view with camera orbit, marked distances, and target boards.
-- A firing interaction and a basic projectile flight test.
-- The next development step is the projectile workshop: nose, body, fins, and mass distribution.
-- After that, add shot replay and an analysis panel for distance, flight time, impact point, and stability.
+- A semi-realistic gas cannon on a 2 km outdoor hypervelocity test course.
+- A 3D range view with camera orbit, 250 m distance readouts, measurement gates, and target stations.
+- Adjustable barrel elevation, muzzle velocity, crosswind, and three projectile designs.
+- A ballistic flight model that uses projectile mass, frontal and side area, shape drag, Mach-region drag, standard-atmosphere density falloff, gravity, and crosswind.
+- Shot results report impact range and offset, flight time, apex height, projectile mass, and drag coefficient.
+- The next development step is the projectile workshop: editable nose, body, fins, and mass distribution, connected directly to these flight properties.
 
 ## Visual direction
 
@@ -25,4 +26,4 @@ Use the supplied cannon image as a style reference: readable industrial forms, d
 
 ## Physics boundary
 
-The first shot is a controlled teaching simulation. Keep the visible projectile model and its collision shape separate so shape experimentation can grow without destabilizing collision behavior. Calibrate the model against clear, explainable variables before adding advanced aerodynamics.
+The current solver uses SI units and Godot rigid-body gravity, then applies aerodynamic drag from air-relative velocity each physics step. It approximates the transonic drag rise and air-density change with altitude. Projectile visuals and collision shapes remain separate from the ballistic parameters so workshop edits can change geometry and mass without coupling them to the integrator. Validate against analytic vacuum trajectories and reference drag curves as the model grows; this first model is intentionally explainable rather than a CFD or high-fidelity atmosphere solver.

@@ -8,7 +8,7 @@ An Android-first 3D range game about shaping projectiles, testing them, and lear
 - **Blender 5.2 LTS** — procedural 3D asset generation and GLB export.
 - **GitHub Actions** — generates the cannon asset, validates the Godot project, and builds a signed APK for download.
 
-The first scene is a range preview with the semi-realistic gas cannon, distance lanes, targets, touch camera orbit, and a basic test shot. The projectile designer and shot-analysis flow are the next game systems to build.
+The first scene is a 2 km hypervelocity test course with a tilting gas cannon, target stations, distance readouts, and touch camera orbit. Players can compare three projectile shapes, tune muzzle velocity and barrel elevation, and add crosswind. Shots use gravity plus air-relative aerodynamic drag, including shape area, mass, a simplified Mach drag curve, and air-density change with altitude; impact range, offset, flight time, and apex are reported in the HUD.
 
 ## Build and download
 
