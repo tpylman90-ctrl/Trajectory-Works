@@ -174,7 +174,7 @@ func _build_hud() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventScreenTouch:
 		if event.pressed:
-			camera_dragging = event.position.x < get_viewport_rect().size.x - 250.0 and event.position.y > 145.0
+			camera_dragging = event.position.x < get_viewport().get_visible_rect().size.x - 250.0 and event.position.y > 145.0
 		else:
 			camera_dragging = false
 	elif event is InputEventScreenDrag and camera_dragging:
