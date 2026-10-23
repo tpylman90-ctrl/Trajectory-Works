@@ -32,6 +32,75 @@ def cable_run(name, points, radius, mat):
         rod("%s | section %02d" % (name, index + 1), points[index], points[index + 1], radius, mat, 16)
 
 
+def add_launch_deck(mats):
+    dark, steel, blue, enamel, screen, amber, copper = mats
+    # Layered steel foundation with bevels large enough to catch the range lights.
+    box("Launch deck | structural foundation", (0.0, 0.12, 0.15), (5.2, 0.24, 7.2), dark, 0.15)
+    box("Launch deck | armored top plate", (0.0, 0.255, 0.15), (4.82, 0.045, 6.84), enamel, 0.085)
+    for side in (-1, 1):
+        box("Launch deck | side armor skirt", (side * 2.48, 0.11, 0.15), (0.22, 0.28, 6.82), blue, 0.055)
+        box("Launch deck | amber edge tracer", (side * 2.34, 0.283, 0.15), (0.060, 0.025, 6.35), amber, 0.014)
+        box("Launch deck | cyan inset tracer", (side * 2.22, 0.281, 0.15), (0.035, 0.022, 6.12), screen, 0.008)
+        # Recessed side ports and fastening strips.
+        for z in (-2.72, -1.90, -1.08, -0.26, 0.56, 1.38, 2.20, 3.02):
+            box("Launch deck | access panel", (side * 2.615, 0.10, z), (0.025, 0.15, 0.58), steel, 0.012)
+            common.fastener("Launch deck | panel latch", (side * 2.635, 0.10, z), (side, 0.0, 0.0), 0.026, copper)
+        for z in (-3.10, -2.20, -1.30, -0.40, 0.50, 1.40, 2.30, 3.20):
+            for x in (-2.15, 2.15):
+                common.fastener("Launch deck | countersunk top bolt", (x, 0.282, z), (0.0, 1.0, 0.0), 0.031, steel)
+    # Beneath-deck beams and four mechanical feet make the platform feel planted.
+    for z in (-2.70, -1.35, 0.15, 1.65, 3.0):
+        box("Launch deck | underframe crossmember", (0.0, -0.06, z), (4.68, 0.16, 0.20), blue, 0.035)
+    for side in (-1, 1):
+        for fore in (-1, 1):
+            x, z = side * 2.0, 0.15 + fore * 2.78
+            box("Launch deck | outrigger pad", (x, -0.025, z), (0.50, 0.18, 0.58), dark, 0.075)
+            rod("Launch deck | leveling jack", (x, 0.02, z), (x, 0.31, z), 0.095, steel)
+            common.torus("Launch deck | jack locking collar", (x, 0.22, z), 0.104, 0.022, copper)
+    # Modular anti-slip inserts add scale and give the cannon base an intentional seat.
+    for index, z in enumerate((-2.70, -1.80, -0.90, 0.0, 0.90, 1.80, 2.70)):
+        panel = box("Launch deck | anti-slip grate", (0.0, 0.282, z + 0.15), (3.88, 0.018, 0.67), dark, 0.022)
+        for x in range(-8, 9):
+            box("Launch deck | grate rib", (x * 0.22, 0.296, z + 0.15), (0.025, 0.012, 0.54), steel, 0.006)
+        if index in (0, 6):
+            for stripe in range(5):
+                box("Launch deck | hazard dash", (-1.35 + stripe * 0.17, 0.298, z + 0.15), (0.10, 0.014, 0.48), amber, 0.008)
+
+
+def add_warehouse_shells(mats):
+    dark, steel, blue, enamel, screen, amber, copper = mats
+    for side in (-1, 1):
+        x, z = side * 14.3, -51.5
+        # Heavy service hangar with layered facade plates, buttresses, and roof plant.
+        box("Range service hangar | main shell", (x, 2.8, z), (5.6, 5.6, 7.4), dark, 0.20)
+        box("Range service hangar | roof cap", (x, 5.68, z), (6.08, 0.20, 7.78), blue, 0.11)
+        box("Range service hangar | front facade", (x, 2.78, -47.74), (5.28, 5.34, 0.16), blue, 0.10)
+        for panel_x in (-2.28, -1.52, -0.76, 0.0, 0.76, 1.52, 2.28):
+            box("Hangar | vertical cladding rib", (x + panel_x, 2.82, -47.63), (0.055, 5.0, 0.065), steel, 0.018)
+        # Large recessed vehicle doors make the structure read as a working facility.
+        box("Hangar | cargo door gasket", (x, 2.15, -47.61), (2.36, 3.45, 0.11), dark, 0.07)
+        box("Hangar | cargo door leaf", (x, 2.15, -47.535), (2.12, 3.20, 0.08), enamel, 0.055)
+        for index in range(6):
+            box("Hangar | cargo door rib", (x, 0.82 + index * 0.48, -47.47), (1.94, 0.055, 0.035), steel, 0.015)
+        for side_offset in (-1.0, 1.0):
+            box("Hangar | cyan window band", (x + side_offset * 1.82, 3.72, -47.55), (0.48, 0.42, 0.06), screen, 0.035)
+            box("Hangar | warning stripe", (x + side_offset * 1.82, 1.0, -47.54), (0.52, 0.10, 0.07), amber, 0.025)
+            # Side buttresses and accessible pipework.
+            box("Hangar | outer buttress", (x + side_offset * 2.66, 2.82, z), (0.26, 5.5, 7.15), blue, 0.065)
+            rod("Hangar | vertical process pipe", (x + side_offset * 2.85, 0.3, -54.3), (x + side_offset * 2.85, 4.8, -54.3), 0.075, copper)
+            for y in (0.60, 4.45):
+                common.torus("Hangar | process pipe clamp", (x + side_offset * 2.85, y, -54.3), 0.095, 0.022, steel)
+        # Roof machinery and a short radio mast silhouette the horizon.
+        for offset in (-1.70, 1.70):
+            box("Hangar | rooftop HVAC plinth", (x + offset, 5.88, z), (1.18, 0.32, 1.52), dark, 0.08)
+            for vent in range(5):
+                box("Hangar | HVAC cooling fin", (x + offset, 6.12, z - 0.54 + vent * 0.27), (0.94, 0.045, 0.045), steel, 0.012)
+        rod("Hangar | antenna mast", (x + side * 1.25, 5.78, z + 0.35), (x + side * 1.25, 8.55, z + 0.35), 0.045, steel, 16)
+        for y in (6.45, 7.12, 7.78, 8.38):
+            rod("Hangar | antenna crossarm", (x + side * 1.25 - 0.52, y, z + 0.35), (x + side * 1.25 + 0.52, y, z + 0.35), 0.024, copper, 12)
+        face_light("Hangar | aviation beacon", (x + side * 1.25, 8.58, z + 0.35), 0.10, amber)
+
+
 def add_console(mats):
     dark, steel, blue, enamel, screen, amber, copper = mats
     # Grounded operator plinth and angled instrument deck.
@@ -176,7 +245,9 @@ def build():
     amber = common.material("Range | amber hazard light", (1.0, 0.29, 0.045), 0.26, 0.24, (0.95, 0.16, 0.015))
     copper = common.material("Range | exposed copper alloy", (0.65, 0.22, 0.095), 0.74, 0.30)
     mats = (dark, steel, blue, enamel, screen, amber, copper)
+    add_launch_deck(mats)
     add_console(mats)
+    add_warehouse_shells(mats)
     add_flood_towers(mats)
     add_fencing(mats)
     add_target_service_frames(mats)
