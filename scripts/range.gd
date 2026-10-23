@@ -93,6 +93,8 @@ var replay_samples: Array = []
 var replay_design: Dictionary = {}
 var replay_duration := 0.0
 var replay_camera_scale := 10.0
+var replay_camera_view := "chase"
+var replay_view_picker: OptionButton
 var replay_path: MeshInstance3D
 var replay_path_visible := true
 var replay_camera_scale_label: Label
@@ -645,8 +647,21 @@ func _show_shot_review() -> void:
 	close_button.text = "CLOSE REVIEW"
 	close_button.pressed.connect(_close_shot_review)
 	row.add_child(close_button)
+	var view_row := HBoxContainer.new()
+	view_row.add_theme_constant_override("separation", 8)
+	stack.add_child(view_row)
+	var view_label := Label.new()
+	view_label.text = "CAMERA ANGLE"
+	view_label.custom_minimum_size = Vector2(130.0, 0.0)
+	view_row.add_child(view_label)
+	replay_view_picker = OptionButton.new()
+	for view_name in ["Chase", "Side", "Front", "Rear"]:
+		replay_view_picker.add_item(view_name)
+	replay_view_picker.select(0)
+	replay_view_picker.item_selected.connect(_on_replay_view_selected)
+	view_row.add_child(replay_view_picker)
 	replay_camera_scale_label = Label.new()
-	replay_camera_scale_label.text = "CHASE FRAMING  •  %0.1f×" % replay_camera_scale
+	replay_camera_scale_label.text = "CAMERA DISTANCE  •  %0.1f×" % replay_camera_scale
 	stack.add_child(replay_camera_scale_label)
 	var camera_scale_slider := HSlider.new()
 	camera_scale_slider.min_value = 6.0
@@ -690,7 +705,15 @@ func _toggle_replay_path() -> void:
 func _on_replay_camera_scale_changed(value: float) -> void:
 	replay_camera_scale = value
 	if is_instance_valid(replay_camera_scale_label):
-		replay_camera_scale_label.text = "CHASE FRAMING  •  %0.1f×" % value
+		replay_camera_scale_label.text = "CAMERA DISTANCE  •  %0.1f×" % value
+	_update_replay_pose()
+
+
+func _on_replay_view_selected(index: int) -> void:
+	var views := ["chase", "side", "front", "rear"]
+	if index < 0 or index >= views.size():
+		return
+	replay_camera_view = views[index]
 	_update_replay_pose()
 
 
@@ -754,6 +777,9 @@ func _toggle_slow_replay() -> void:
 	replay_design = shot.design
 	replay_duration = float(shot.time)
 	replay_time = 0.0
+	replay_camera_view = "chase"
+	if is_instance_valid(replay_view_picker):
+		replay_view_picker.select(0)
 	replay_paused = false
 	replay_active = true
 	projectile_camera_enabled = true
@@ -828,12 +854,26 @@ func _update_replay_camera(position: Vector3, velocity: Vector3, diameter: float
 		return
 	var forward := velocity.normalized() if velocity.length_squared() > 0.01 else Vector3.FORWARD
 	var stable_up := Vector3.UP if absf(forward.dot(Vector3.UP)) < 0.97 else Vector3.RIGHT
+	var right := forward.cross(stable_up).normalized()
+	if right.length_squared() < 0.001:
+		right = Vector3.RIGHT
 	var distance := clampf(diameter * replay_camera_scale, diameter * 5.0, diameter * 24.0)
+	var target := position + forward * maxf(diameter * 8.0, 1.8)
+	var offset := -forward * distance + stable_up * distance * 0.32
+	match replay_camera_view:
+		"side":
+			target = position
+			offset = right * distance + stable_up * distance * 0.18
+		"front":
+			target = position - forward * maxf(diameter * 0.5, 0.1)
+			offset = forward * distance + stable_up * distance * 0.18
+		"rear":
+			target = position + forward * maxf(diameter * 1.5, 0.3)
+			offset = -forward * distance + stable_up * distance * 0.18
 	camera.far = clampf(110000.0 + position.y * 24.0, 110000.0, 15000000.0)
 	camera.fov = 54.0
-	camera.global_position = position - forward * distance + stable_up * distance * 0.32
-	camera.look_at(position + forward * maxf(diameter * 8.0, 1.8), stable_up)
-
+	camera.global_position = position + offset
+	camera.look_at(target, stable_up)
 
 func _on_replay_scrubbed(value: float) -> void:
 	if replay_samples.is_empty():
