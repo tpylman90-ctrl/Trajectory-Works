@@ -74,6 +74,58 @@ var ground_visual: MeshInstance3D
 var ground_mesh: PlaneMesh
 var ground_render_size := 100000.0
 var ground_home := Vector3(0.0, -0.12, 0.0)
+var shot_history: Array[Dictionary] = []
+var review_layer: CanvasLayer
+var review_summary: Label
+var review_compare: Label
+var review_plot: FlightPlot
+var replay_scrubber: HSlider
+var replay_speed_picker: OptionButton
+var replay_button: Button
+var replay_round: Node3D
+var replay_active := false
+var replay_paused := false
+var replay_time := 0.0
+var replay_rate := 0.25
+var replay_samples: Array = []
+var replay_design: Dictionary = {}
+var replay_duration := 0.0
+var replay_camera_scale := 10.0
+var replay_path: MeshInstance3D
+var replay_path_visible := true
+var replay_camera_scale_label: Label
+
+class FlightPlot extends Control:
+	var samples: Array = []
+	func _draw() -> void:
+		var area := size
+		draw_rect(Rect2(Vector2.ZERO, area), Color(0.006, 0.018, 0.028, 0.96), true)
+		for i in range(1, 5):
+			var y := area.y * float(i) / 5.0
+			draw_line(Vector2(0, y), Vector2(area.x, y), Color(0.16, 0.35, 0.42, 0.5), 1.0)
+		for i in range(1, 6):
+			var x := area.x * float(i) / 6.0
+			draw_line(Vector2(x, 0), Vector2(x, area.y), Color(0.16, 0.35, 0.42, 0.35), 1.0)
+		if samples.size() < 2:
+			draw_string(ThemeDB.fallback_font, Vector2(12, 22), "FLIGHT PROFILE • HEIGHT VS DOWNRANGE", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.55, 0.85, 0.91))
+			return
+		var min_x := float(samples[0].position.z)
+		var max_x := float(samples[0].position.z)
+		var max_y := 1.0
+		for sample in samples:
+			var p: Vector3 = sample.position
+			min_x = minf(min_x, p.z)
+			max_x = maxf(max_x, p.z)
+			max_y = maxf(max_y, p.y)
+		var span_x := maxf(absf(max_x - min_x), 1.0)
+		var pts := PackedVector2Array()
+		for sample in samples:
+			var p: Vector3 = sample.position
+			pts.append(Vector2(8.0 + ((p.z - min_x) / span_x) * (area.x - 16.0), area.y - 8.0 - (clampf(p.y, 0.0, max_y) / max_y) * (area.y - 24.0)))
+		draw_polyline(pts, Color(0.22, 0.86, 1.0), 2.5, true)
+		draw_circle(pts[0], 4.0, Color(1.0, 0.55, 0.16))
+		draw_circle(pts[pts.size() - 1], 4.0, Color(0.30, 1.0, 0.62))
+
 
 const ROUND_NOSES := ["Ogive", "Conical", "Round", "Flat"]
 const ROUND_MATERIALS := [
@@ -82,6 +134,19 @@ const ROUND_MATERIALS := [
 	{"name": "Copper alloy", "density": 8960.0, "color": Color(0.72, 0.32, 0.15)},
 	{"name": "Tungsten alloy", "density": 18000.0, "color": Color(0.25, 0.31, 0.37)},
 ]
+
+
+func _process(delta: float) -> void:
+	if not replay_active or replay_paused or replay_samples.size() < 2:
+		return
+	replay_time = minf(replay_time + delta * replay_rate, replay_duration)
+	if is_instance_valid(replay_scrubber):
+		replay_scrubber.set_value_no_signal(replay_time)
+	_update_replay_pose()
+	if replay_time >= replay_duration:
+		replay_paused = true
+		if is_instance_valid(replay_button):
+			replay_button.text = "REPLAY COMPLETE  •  REPLAY"
 
 
 func _ready() -> void:
@@ -514,6 +579,284 @@ func _build_range_assets() -> void:
 	imported.name = "BlenderRangeSetDressing"
 	add_child(imported)
 	print("Using detailed Blender range set dressing.")
+
+
+func _show_shot_review() -> void:
+	if is_instance_valid(review_layer):
+		_stop_slow_replay()
+		review_layer.queue_free()
+	review_layer = CanvasLayer.new()
+	review_layer.layer = 20
+	add_child(review_layer)
+	var panel := PanelContainer.new()
+	panel.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	panel.position = Vector2(-300.0, 22.0)
+	panel.custom_minimum_size = Vector2(600.0, 0.0)
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.008, 0.024, 0.034, 0.91)
+	style.border_color = Color(0.16, 0.78, 0.92, 0.9)
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(4)
+	style.shadow_color = Color(0.0, 0.0, 0.0, 0.55)
+	style.shadow_size = 10
+	panel.add_theme_stylebox_override("panel", style)
+	review_layer.add_child(panel)
+	var stack := VBoxContainer.new()
+	stack.add_theme_constant_override("separation", 6)
+	panel.add_child(stack)
+	var heading := Label.new()
+	heading.text = "POST-SHOT STUDY  •  SHOT %02d" % int(shot_history.back().shot)
+	heading.add_theme_font_size_override("font_size", 18)
+	heading.add_theme_color_override("font_color", Color(0.58, 0.92, 1.0))
+	stack.add_child(heading)
+	review_summary = Label.new()
+	review_summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	review_summary.add_theme_color_override("font_color", Color(0.84, 0.92, 0.95))
+	stack.add_child(review_summary)
+	review_compare = Label.new()
+	review_compare.add_theme_color_override("font_color", Color(1.0, 0.66, 0.30))
+	stack.add_child(review_compare)
+	review_plot = FlightPlot.new()
+	review_plot.custom_minimum_size = Vector2(0.0, 150.0)
+	review_plot.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	review_plot.samples = shot_history.back().samples
+	stack.add_child(review_plot)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	stack.add_child(row)
+	replay_button = Button.new()
+	replay_button.text = "REPLAY  •  0.25×"
+	replay_button.custom_minimum_size = Vector2(150.0, 42.0)
+	replay_button.pressed.connect(_toggle_slow_replay)
+	row.add_child(replay_button)
+	replay_speed_picker = OptionButton.new()
+	for speed in [0.10, 0.25, 0.50, 1.0]:
+		replay_speed_picker.add_item("%0.2gx" % speed)
+	replay_speed_picker.select(1)
+	replay_speed_picker.item_selected.connect(_on_replay_speed_selected)
+	row.add_child(replay_speed_picker)
+	var path_button := Button.new()
+	path_button.text = "PATH TRACE  •  ON"
+	path_button.pressed.connect(_toggle_replay_path)
+	row.add_child(path_button)
+	var close_button := Button.new()
+	close_button.text = "CLOSE REVIEW"
+	close_button.pressed.connect(_close_shot_review)
+	row.add_child(close_button)
+	replay_camera_scale_label = Label.new()
+	replay_camera_scale_label.text = "CHASE FRAMING  •  %0.1f×" % replay_camera_scale
+	stack.add_child(replay_camera_scale_label)
+	var camera_scale_slider := HSlider.new()
+	camera_scale_slider.min_value = 6.0
+	camera_scale_slider.max_value = 18.0
+	camera_scale_slider.step = 0.5
+	camera_scale_slider.value = replay_camera_scale
+	camera_scale_slider.value_changed.connect(_on_replay_camera_scale_changed)
+	stack.add_child(camera_scale_slider)
+	replay_scrubber = HSlider.new()
+	replay_scrubber.min_value = 0.0
+	replay_scrubber.max_value = maxf(replay_duration, 0.01)
+	replay_scrubber.step = maxf(replay_duration / 500.0, 0.01)
+	replay_scrubber.value_changed.connect(_on_replay_scrubbed)
+	stack.add_child(replay_scrubber)
+	var axes := Label.new()
+	axes.text = "FLIGHT PROFILE  •  ALTITUDE VS DOWNRANGE     ORANGE: LAUNCH   CYAN: PATH   GREEN: END"
+	axes.add_theme_font_size_override("font_size", 12)
+	axes.add_theme_color_override("font_color", Color(0.55, 0.79, 0.85))
+	stack.add_child(axes)
+	_update_review_text()
+
+
+func _update_review_text() -> void:
+	if shot_history.is_empty() or not is_instance_valid(review_summary):
+		return
+	var shot: Dictionary = shot_history.back()
+	review_summary.text = "%s  •  RANGE %0.0f M  •  TIME %0.2f S\nAPEX %0.0f M  •  IMPACT %0.0f M/S (MACH %0.2f)  •  SPIN %0.0f RPM\nMASS %0.2f KG  •  DIAMETER %0.0f MM  •  PEAK MACH %0.2f  •  MAX Q %0.1f KPA" % [shot.outcome, shot.range, shot.time, shot.apex, shot.impact_speed, shot.impact_mach, shot.spin_rpm, shot.mass, shot.diameter * 1000.0, shot.peak_mach, shot.max_q / 1000.0]
+	if shot_history.size() > 1:
+		var previous: Dictionary = shot_history[shot_history.size() - 2]
+		review_compare.text = "VS SHOT %02d  •  RANGE %+0.1f M  •  APEX %+0.1f M  •  IMPACT SPEED %+0.1f M/S" % [previous.shot, float(shot.range) - float(previous.range), float(shot.apex) - float(previous.apex), float(shot.impact_speed) - float(previous.impact_speed)]
+	else:
+		review_compare.text = "SHOT HISTORY  •  FIRE AGAIN TO COMPARE THIS ROUND WITH YOUR NEXT DESIGN"
+
+
+func _toggle_replay_path() -> void:
+	replay_path_visible = not replay_path_visible
+	if is_instance_valid(replay_path):
+		replay_path.visible = replay_path_visible
+
+
+func _on_replay_camera_scale_changed(value: float) -> void:
+	replay_camera_scale = value
+	if is_instance_valid(replay_camera_scale_label):
+		replay_camera_scale_label.text = "CHASE FRAMING  •  %0.1f×" % value
+	_update_replay_pose()
+
+
+func _build_replay_path() -> void:
+	if is_instance_valid(replay_path):
+		replay_path.queue_free()
+	replay_path = MeshInstance3D.new()
+	var mesh := ImmediateMesh.new()
+	mesh.surface_begin(Mesh.PRIMITIVE_LINE_STRIP)
+	for i in range(replay_samples.size()):
+		var sample: Dictionary = replay_samples[i]
+		var alpha := lerpf(0.10, 0.74, float(i) / float(maxi(replay_samples.size() - 1, 1)))
+		mesh.surface_set_color(Color(0.12, 0.75, 0.94, alpha))
+		mesh.surface_add_vertex(sample.position)
+	mesh.surface_end()
+	var path_material := StandardMaterial3D.new()
+	path_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	path_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	path_material.vertex_color_use_as_albedo = true
+	path_material.albedo_color = Color.WHITE
+	path_material.emission_enabled = true
+	path_material.emission = Color(0.04, 0.24, 0.32)
+	path_material.emission_energy_multiplier = 0.25
+	path_material.no_depth_test = false
+	replay_path.mesh = mesh
+	replay_path.material_override = path_material
+	replay_path.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	replay_path.visible = replay_path_visible
+	add_child(replay_path)
+
+
+func _close_shot_review() -> void:
+	_stop_slow_replay()
+	if is_instance_valid(review_layer):
+		review_layer.queue_free()
+	review_layer = null
+
+
+func _on_replay_speed_selected(index: int) -> void:
+	var rates := [0.10, 0.25, 0.50, 1.0]
+	replay_rate = float(rates[clampi(index, 0, rates.size() - 1)])
+	if is_instance_valid(replay_button):
+		replay_button.text = ("RESUME" if replay_paused else "PAUSE") + "  •  %0.2gx" % replay_rate
+
+
+func _toggle_slow_replay() -> void:
+	if replay_active and replay_paused and replay_time < replay_duration:
+		replay_paused = false
+		if is_instance_valid(replay_button):
+			replay_button.text = "PAUSE  •  %0.2gx" % replay_rate
+		return
+	if replay_active and not replay_paused:
+		replay_paused = true
+		if is_instance_valid(replay_button):
+			replay_button.text = "RESUME  •  %0.2gx" % replay_rate
+		return
+	if shot_history.is_empty():
+		return
+	var shot: Dictionary = shot_history.back()
+	replay_samples = shot.samples
+	replay_design = shot.design
+	replay_duration = float(shot.time)
+	replay_time = 0.0
+	replay_paused = false
+	replay_active = true
+	projectile_camera_enabled = true
+	if is_instance_valid(projectile_camera_button):
+		projectile_camera_button.text = "PROJECTILE CAM  •  ON"
+	_create_replay_round()
+	_build_replay_path()
+	_update_replay_pose()
+	if is_instance_valid(replay_scrubber):
+		replay_scrubber.max_value = maxf(replay_duration, 0.01)
+		replay_scrubber.set_value_no_signal(0.0)
+	if is_instance_valid(replay_button):
+		replay_button.text = "PAUSE  •  %0.2gx" % replay_rate
+
+
+func _create_replay_round() -> void:
+	if is_instance_valid(replay_round):
+		replay_round.queue_free()
+	replay_round = Node3D.new()
+	replay_round.name = "SlowMotionRoundReplay"
+	var model := MeshInstance3D.new()
+	var radius := float(replay_design.get("diameter", 0.18)) * 0.5
+	if str(replay_design.get("shape", "")) == "custom":
+		model.mesh = _build_round_mesh(replay_design)
+	elif str(replay_design.get("shape", "")) == "sphere":
+		var sphere := SphereMesh.new()
+		sphere.radius = radius
+		sphere.height = radius * 2.0
+		model.mesh = sphere
+	else:
+		var capsule := CapsuleMesh.new()
+		capsule.radius = radius
+		capsule.height = float(replay_design.get("length", radius * 3.0))
+		model.mesh = capsule
+		model.rotation.x = PI * 0.5
+	var color: Color = replay_design.get("color", Color(0.42, 0.55, 0.62))
+	var finish := StandardMaterial3D.new()
+	finish.albedo_color = color
+	finish.metallic = 0.82
+	finish.roughness = 0.29
+	finish.emission_enabled = true
+	finish.emission = Color(0.008, 0.055, 0.075)
+	finish.emission_energy_multiplier = 0.18
+	model.material_override = finish
+	replay_round.add_child(model)
+	add_child(replay_round)
+
+
+func _update_replay_pose() -> void:
+	if not replay_active or replay_samples.size() < 2:
+		return
+	var lo := 0
+	while lo < replay_samples.size() - 2 and float(replay_samples[lo + 1].time) < replay_time:
+		lo += 1
+	var a: Dictionary = replay_samples[lo]
+	var b: Dictionary = replay_samples[lo + 1]
+	var span := maxf(float(b.time) - float(a.time), 0.0001)
+	var t := clampf((replay_time - float(a.time)) / span, 0.0, 1.0)
+	var position: Vector3 = a.position.lerp(b.position, t)
+	var rotation_a: Quaternion = a.rotation
+	var rotation_b: Quaternion = b.rotation
+	var rotation := rotation_a.slerp(rotation_b, t).normalized()
+	if is_instance_valid(replay_round):
+		replay_round.global_position = position
+		replay_round.global_basis = Basis(rotation)
+	var velocity: Vector3 = a.velocity.lerp(b.velocity, t)
+	_update_replay_camera(position, velocity, float(replay_design.get("diameter", 0.18)))
+
+
+func _update_replay_camera(position: Vector3, velocity: Vector3, diameter: float) -> void:
+	if not projectile_camera_enabled:
+		return
+	var forward := velocity.normalized() if velocity.length_squared() > 0.01 else Vector3.FORWARD
+	var stable_up := Vector3.UP if absf(forward.dot(Vector3.UP)) < 0.97 else Vector3.RIGHT
+	var distance := clampf(diameter * replay_camera_scale, diameter * 5.0, diameter * 24.0)
+	camera.far = clampf(110000.0 + position.y * 24.0, 110000.0, 15000000.0)
+	camera.fov = 54.0
+	camera.global_position = position - forward * distance + stable_up * distance * 0.32
+	camera.look_at(position + forward * maxf(diameter * 8.0, 1.8), stable_up)
+
+
+func _on_replay_scrubbed(value: float) -> void:
+	if replay_samples.is_empty():
+		return
+	replay_time = clampf(value, 0.0, replay_duration)
+	replay_active = true
+	replay_paused = true
+	if not is_instance_valid(replay_round):
+		_create_replay_round()
+		_build_replay_path()
+	_update_replay_pose()
+	if is_instance_valid(replay_button):
+		replay_button.text = "RESUME  •  %0.2gx" % replay_rate
+
+
+func _stop_slow_replay() -> void:
+	replay_active = false
+	replay_paused = true
+	replay_samples.clear()
+	if is_instance_valid(replay_round):
+		replay_round.queue_free()
+	replay_round = null
+	if is_instance_valid(replay_path):
+		replay_path.queue_free()
+	replay_path = null
 
 
 func _build_hud() -> void:
@@ -1455,6 +1798,12 @@ func _close_round_editor() -> void:
 
 
 func _toggle_projectile_camera() -> void:
+	if replay_active:
+		projectile_camera_enabled = not projectile_camera_enabled
+		if is_instance_valid(projectile_camera_button):
+			projectile_camera_button.text = "PROJECTILE CAM  •  ON" if projectile_camera_enabled else "PROJECTILE CAM  •  OFF"
+		_update_replay_pose()
+		return
 	projectile_camera_enabled = not projectile_camera_enabled
 	if projectile_camera_enabled:
 		followed_projectile = last_projectile if is_instance_valid(last_projectile) else null
@@ -1637,7 +1986,10 @@ func _fire_test_shot() -> void:
 		followed_projectile = projectile
 	projectile.set_meta("design", design)
 	projectile.set_meta("wind_x", wind_slider.value)
-	active_shots[projectile.get_instance_id()] = {"body": projectile, "number": shot_count, "time": 0.0, "max_height": projectile.global_position.y, "origin": projectile.global_position, "design": design}
+	var initial_atmosphere := _atmosphere_state(projectile.global_position.y)
+	var initial_spin := absf(projectile.angular_velocity.dot(-projectile.global_transform.basis.z.normalized())) * 60.0 / TAU
+	var initial_sample := {"time": 0.0, "position": projectile.global_position, "rotation": projectile.global_transform.basis.get_rotation_quaternion(), "velocity": projectile.linear_velocity, "mach": projectile.linear_velocity.length() / maxf(float(initial_atmosphere.sound_speed), 1.0), "spin_rpm": initial_spin, "q": 0.5 * float(initial_atmosphere.density) * projectile.linear_velocity.length_squared()}
+	active_shots[projectile.get_instance_id()] = {"body": projectile, "number": shot_count, "time": 0.0, "sample_timer": 0.0, "samples": [initial_sample], "max_height": projectile.global_position.y, "max_q": 0.0, "peak_mach": 0.0, "peak_spin_rpm": initial_spin, "origin": projectile.global_position, "design": design}
 	analysis_label.text = "IN FLIGHT  •  %0.1f KG / %0.0f MM / Cd %0.2f" % [design.mass, design.diameter * 1000.0, design.cd]
 	# Shots remain active until impact; the long failsafe only cleans up runaway bodies.
 
@@ -1748,10 +2100,18 @@ func _atmosphere_state(altitude: float) -> Dictionary:
 	}
 
 
-func _mach_drag_multiplier(mach: float) -> float:
-	var transonic_peak := 0.28 * exp(-pow((mach - 1.0) / 0.32, 2.0))
-	var high_mach_reduction := 0.08 * clampf((mach - 3.0) / 2.0, 0.0, 1.0)
-	return 1.0 + transonic_peak - high_mach_reduction
+func _mach_drag_multiplier(mach: float, nose: String = "Ogive") -> float:
+	# A compact transonic drag rise followed by the milder coefficient change
+	# typical of slender supersonic bodies; blunt noses retain more pressure drag.
+	var nose_factor := 1.0
+	match nose.to_lower():
+		"flat": nose_factor = 1.55
+		"round": nose_factor = 1.25
+		"conical": nose_factor = 0.94
+	var transonic_peak := 0.34 * nose_factor * exp(-pow((mach - 1.0) / 0.34, 2.0))
+	var subsonic_curve := 1.0 + 0.10 * clampf((0.8 - mach) / 0.8, 0.0, 1.0)
+	var supersonic_relief := 0.10 * clampf((mach - 2.0) / 6.0, 0.0, 0.7)
+	return maxf(subsonic_curve + transonic_peak - supersonic_relief, 0.68)
 
 
 func _physics_process(_delta: float) -> void:
@@ -1765,7 +2125,11 @@ func _physics_process(_delta: float) -> void:
 		var local_gravity := AIR_GRAVITY * pow(EARTH_RADIUS / (EARTH_RADIUS + altitude), 2.0)
 		projectile.apply_central_force(Vector3.DOWN * projectile.mass * local_gravity)
 		var velocity := projectile.linear_velocity
-		var relative_air_velocity := velocity - Vector3(float(projectile.get_meta("wind_x")), 0.0, 0.0)
+		var base_wind := float(projectile.get_meta("wind_x"))
+		var altitude_shear := signf(base_wind) * minf(absf(base_wind) * 0.8, absf(base_wind) * clampf(altitude / 6000.0, 0.0, 0.8))
+		var course_gust := sin(projectile.global_position.z * 0.0013 + altitude * 0.00017 + float(shot.number)) * absf(base_wind) * 0.12
+		var wind_at_round := base_wind + altitude_shear + course_gust
+		var relative_air_velocity := velocity - Vector3(wind_at_round, 0.0, 0.0)
 		var speed := relative_air_velocity.length()
 		if speed > 0.01:
 			var design: Dictionary = shot.design
@@ -1787,12 +2151,17 @@ func _physics_process(_delta: float) -> void:
 			var atmosphere := _atmosphere_state(projectile.global_position.y)
 			var density := float(atmosphere.density)
 			var mach := speed / maxf(float(atmosphere.sound_speed), 1.0)
-			var drag := 0.5 * density * effective_cd * _mach_drag_multiplier(mach) * projected_area * speed * speed
+			var nose_name := str(design.get("nose", "Ogive"))
+			var drag := 0.5 * density * effective_cd * _mach_drag_multiplier(mach, nose_name) * projected_area * speed * speed
+			var dynamic_pressure := 0.5 * density * speed * speed
+			shot.max_q = maxf(float(shot.get("max_q", 0.0)), dynamic_pressure)
+			shot.peak_mach = maxf(float(shot.get("peak_mach", 0.0)), mach)
 			projectile.apply_central_force(-relative_air_velocity.normalized() * drag)
 			if design.shape != "sphere" and speed > 1.0:
-				var dynamic_pressure := 0.5 * density * speed * speed
 				var alignment_error := axis.cross(relative_air_velocity.normalized())
 				var spin_rate := projectile.angular_velocity.dot(axis)
+				var spin_rpm := absf(spin_rate) * 60.0 / TAU
+				shot.peak_spin_rpm = maxf(float(shot.get("peak_spin_rpm", 0.0)), spin_rpm)
 				var spin_stability := 1.0 / (1.0 + absf(spin_rate) * 0.018)
 				var stability_torque := alignment_error * minf(dynamic_pressure * projected_area * float(design.length) * 0.00004, 30.0) * spin_stability
 				var rotational_damping := projectile.angular_velocity * minf(dynamic_pressure * projected_area * float(design.length) * 0.000003, 5.0)
@@ -1825,7 +2194,17 @@ func _physics_process(_delta: float) -> void:
 			_update_projectile_camera(projectile)
 		shot.time = float(shot.time) + _delta
 		shot.max_height = maxf(float(shot.max_height), projectile.global_position.y)
+		shot.sample_timer = float(shot.get("sample_timer", 0.0)) + _delta
+		if float(shot.sample_timer) >= 0.05:
+			shot.sample_timer = fmod(float(shot.sample_timer), 0.05)
+			var sample_atmosphere := _atmosphere_state(projectile.global_position.y)
+			var sample_axis := -projectile.global_transform.basis.z.normalized()
+			var sample_spin := absf(projectile.angular_velocity.dot(sample_axis)) * 60.0 / TAU
+			var samples: Array = shot.samples
+			samples.append({"time": shot.time, "position": projectile.global_position, "rotation": projectile.global_transform.basis.get_rotation_quaternion(), "velocity": projectile.linear_velocity, "mach": projectile.linear_velocity.length() / maxf(float(sample_atmosphere.sound_speed), 1.0), "spin_rpm": sample_spin, "q": 0.5 * float(sample_atmosphere.density) * projectile.linear_velocity.length_squared()})
+			shot.samples = samples
 		if shot.time >= MAX_SHOT_FLIGHT_TIME or projectile.global_position.distance_squared_to(shot.origin) >= MAX_SHOT_TRAVEL * MAX_SHOT_TRAVEL:
+			_finish_shot(shot, projectile, "FLIGHT TIME LIMIT", projectile.linear_velocity.length())
 			_remove_projectile(projectile)
 			continue
 		active_shots[shot_id] = shot
@@ -1954,12 +2333,39 @@ func _on_projectile_body_entered(body: Node, projectile: RigidBody3D) -> void:
 	_spawn_impact_splash(impact_position, impact_normal, shot.design, impact_speed)
 	var impact_atmosphere := _atmosphere_state(projectile.global_position.y)
 	var impact_mach := impact_speed / maxf(float(impact_atmosphere.sound_speed), 1.0)
+	var final_samples: Array = shot.samples
+	final_samples.append({"time": shot.time, "position": projectile.global_position, "rotation": projectile.global_transform.basis.get_rotation_quaternion(), "velocity": projectile.linear_velocity, "mach": impact_mach, "spin_rpm": absf(projectile.angular_velocity.dot(-projectile.global_transform.basis.z.normalized())) * 60.0 / TAU, "q": 0.5 * float(impact_atmosphere.density) * impact_speed * impact_speed})
+	shot.samples = final_samples
+	_finish_shot(shot, projectile, result, impact_speed)
 	analysis_label.text = "%s\nTIME %0.2f S  •  APEX %0.1f M\nIMPACT %0.0f M/S (MACH %0.2f)\nMASS %0.1f KG  •  Cd %0.2f" % [result, shot.time, shot.max_height, impact_speed, impact_mach, shot.design.mass, shot.design.cd]
 	active_shots.erase(shot_id)
 	if projectile == followed_projectile:
 		_hold_projectile_camera_at_impact(impact_position, incoming)
 	if projectile == last_projectile:
 		last_projectile = null
+
+
+func _finish_shot(shot: Dictionary, projectile: RigidBody3D, outcome: String, impact_speed: float) -> void:
+	var displacement: Vector3 = projectile.global_position - shot.origin
+	var atmosphere := _atmosphere_state(projectile.global_position.y)
+	var design: Dictionary = shot.design
+	var final_spin := absf(projectile.angular_velocity.dot(-projectile.global_transform.basis.z.normalized())) * 60.0 / TAU
+	var final_atmosphere := _atmosphere_state(projectile.global_position.y)
+	var sample_copy: Array = shot.samples.duplicate(true)
+	var terminal_time := float(shot.time)
+	if sample_copy.is_empty() or absf(float(sample_copy.back().time) - terminal_time) > 0.001:
+		sample_copy.append({"time": terminal_time, "position": projectile.global_position, "rotation": projectile.global_transform.basis.get_rotation_quaternion(), "velocity": projectile.linear_velocity, "mach": impact_speed / maxf(float(final_atmosphere.sound_speed), 1.0), "spin_rpm": final_spin, "q": 0.5 * float(final_atmosphere.density) * impact_speed * impact_speed})
+	var summary := {
+		"shot": int(shot.number), "outcome": outcome, "range": maxf(-displacement.z, 0.0), "offset_x": displacement.x,
+		"time": float(shot.time), "apex": float(shot.max_height), "impact_speed": impact_speed,
+		"impact_mach": impact_speed / maxf(float(atmosphere.sound_speed), 1.0), "spin_rpm": maxf(final_spin, float(shot.get("peak_spin_rpm", 0.0))),
+		"mass": float(design.mass), "diameter": float(design.diameter), "peak_mach": float(shot.get("peak_mach", 0.0)),
+		"max_q": float(shot.get("max_q", 0.0)), "samples": sample_copy, "design": design.duplicate(true)
+	}
+	shot_history.append(summary)
+	while shot_history.size() > 8:
+		shot_history.pop_front()
+	_show_shot_review()
 
 
 func _remove_projectile(projectile: RigidBody3D) -> void:
