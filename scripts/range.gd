@@ -1713,13 +1713,18 @@ func _round_ring_point(radius: float, z: float, angle: float, design: Dictionary
 	var nose_start := -float(design.length) * 0.5 + float(design.get("tip_length", 0.0))
 	var body_fade := smoothstep(nose_start, nose_start + body_radius * 0.9, z) * (1.0 - smoothstep(float(design.length) * 0.5 - body_radius * 0.6, float(design.length) * 0.5, z))
 	var rib_count := maxi(int(design.get("rib_count", 6)), 3)
-	var amplitude := minf(float(design.get("rib_depth", 0.0)), body_radius * 0.18)
 	var pattern := str(design.get("surface_pattern", "smooth"))
+	var pull := maxf(float(station.get("pull", 1.0)), 0.0)
+	var base_radius := radius * pull
+	# Keep flute slope below the ring radius so extreme rib counts cannot fold
+	# neighboring triangles over each other and create dark gaps in the preview.
+	var safe_rib_depth := minf(body_radius * 0.18, base_radius * 0.65 / float(rib_count))
+	var amplitude := minf(maxf(float(design.get("rib_depth", 0.0)), 0.0), safe_rib_depth)
 	var ridge_sign := 1.0 if pattern == "ridges" else -1.0
 	var rib_offset := 0.0
 	if pattern != "smooth" and amplitude > 0.00001:
 		rib_offset = ridge_sign * amplitude * body_fade * cos(float(rib_count) * (angle - twist))
-	var scaled_radius := maxf(radius * float(station.get("pull", 1.0)) + rib_offset, radius * 0.25)
+	var scaled_radius := maxf(base_radius + rib_offset, radius * 0.12)
 	return Vector3(
 		float(station.get("bend_x", 0.0)) + scaled_radius * cos(angle),
 		float(station.get("bend_y", 0.0)) + scaled_radius * sin(angle),
