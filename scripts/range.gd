@@ -27,11 +27,43 @@ func _build_world() -> void:
 	var environment := Environment.new()
 	environment.background_mode = Environment.BG_SKY
 	environment.sky = Sky.new()
-	var sky_material := ProceduralSkyMaterial.new()
-	sky_material.sky_top_color = Color(0.035, 0.075, 0.14)
-	sky_material.sky_horizon_color = Color(0.32, 0.43, 0.52)
-	sky_material.ground_bottom_color = Color(0.045, 0.075, 0.095)
-	sky_material.ground_horizon_color = Color(0.22, 0.30, 0.34)
+	var sky_shader := Shader.new()
+	sky_shader.code = """shader_type sky;
+uniform vec3 sky_top : source_color = vec3(0.035, 0.075, 0.14);
+uniform vec3 sky_horizon : source_color = vec3(0.32, 0.43, 0.52);
+uniform vec3 cloud_color : source_color = vec3(0.42, 0.48, 0.53);
+float hash21(vec2 p) {
+	p = fract(p * vec2(123.34, 456.21));
+	p += dot(p, p + 45.32);
+	return fract(p.x * p.y);
+}
+float noise2d(vec2 p) {
+	vec2 i = floor(p);
+	vec2 f = fract(p);
+	f = f * f * (3.0 - 2.0 * f);
+	float a = hash21(i);
+	float b = hash21(i + vec2(1.0, 0.0));
+	float c = hash21(i + vec2(0.0, 1.0));
+	float d = hash21(i + vec2(1.0, 1.0));
+	return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+void sky() {
+	vec3 direction = normalize(EYEDIR);
+	float elevation = clamp(direction.y * 0.5 + 0.5, 0.0, 1.0);
+	vec3 base = mix(sky_horizon, sky_top, smoothstep(0.12, 0.94, elevation));
+	vec2 cloud_uv = direction.xz * 18.0 / max(direction.y + 0.32, 0.18);
+	float cloud_shape = noise2d(cloud_uv * 0.22) * 0.68
+		+ noise2d(cloud_uv * 0.72 + vec2(8.3, 2.7)) * 0.32;
+	float cloud_cover = smoothstep(0.48, 0.76, cloud_shape);
+	float cloud_band = smoothstep(-0.04, 0.24, direction.y) * (1.0 - smoothstep(0.58, 0.88, direction.y));
+	float lower_atmosphere = 1.0 - smoothstep(-0.10, 0.10, direction.y);
+	base = mix(vec3(0.055, 0.085, 0.11), base, 1.0 - lower_atmosphere);
+	base = mix(base, cloud_color, cloud_cover * cloud_band * 0.68);
+	COLOR = base;
+}
+"""
+	var sky_material := ShaderMaterial.new()
+	sky_material.shader = sky_shader
 	environment.sky.sky_material = sky_material
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 	environment.ambient_light_color = Color(0.45, 0.60, 0.76)
