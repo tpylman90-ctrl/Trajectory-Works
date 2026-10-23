@@ -27,22 +27,26 @@ func _build_world() -> void:
 	environment.background_mode = Environment.BG_SKY
 	environment.sky = Sky.new()
 	var sky_material := ProceduralSkyMaterial.new()
-	sky_material.sky_top_color = Color(0.08, 0.16, 0.27)
-	sky_material.sky_horizon_color = Color(0.46, 0.56, 0.63)
-	sky_material.ground_bottom_color = Color(0.11, 0.14, 0.17)
-	sky_material.ground_horizon_color = Color(0.38, 0.43, 0.45)
+	sky_material.sky_top_color = Color(0.035, 0.075, 0.14)
+	sky_material.sky_horizon_color = Color(0.32, 0.43, 0.52)
+	sky_material.ground_bottom_color = Color(0.045, 0.075, 0.095)
+	sky_material.ground_horizon_color = Color(0.22, 0.30, 0.34)
 	environment.sky.sky_material = sky_material
-	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	environment.ambient_light_color = Color(0.67, 0.75, 0.84)
-	environment.ambient_light_energy = 0.8
+	environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+	environment.ambient_light_color = Color(0.45, 0.60, 0.76)
+	environment.ambient_light_energy = 0.9
+	environment.fog_enabled = true
+	environment.fog_light_color = Color(0.32, 0.43, 0.52)
+	environment.fog_density = 0.007
+	environment.fog_sun_scatter = 0.08
 	environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	world.environment = environment
 	add_child(world)
 
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-42.0, -28.0, 0.0)
-	sun.light_color = Color(1.0, 0.84, 0.68)
-	sun.light_energy = 1.55
+	sun.light_color = Color(1.0, 0.72, 0.49)
+	sun.light_energy = 1.8
 	sun.shadow_enabled = true
 	add_child(sun)
 
@@ -57,7 +61,7 @@ func _build_world() -> void:
 	ground_mesh.size = Vector2(70.0, 100.0)
 	ground.mesh = ground_mesh
 	ground.position = Vector3(0.0, -0.12, -25.0)
-	ground.material_override = _material(Color(0.29, 0.34, 0.36), 0.08, 0.92)
+	ground.material_override = _material(Color(0.105, 0.145, 0.17), 0.16, 0.86)
 	add_child(ground)
 	var ground_body := StaticBody3D.new()
 	ground_body.position = ground.position
@@ -163,6 +167,31 @@ func _build_range_details() -> void:
 		_add_box(self, Vector3(-7.25, 1.2, -distance), Vector3(0.18, 2.4, 0.18), Color(0.13, 0.19, 0.22), 0.04, 0.68)
 		_add_box(self, Vector3(-7.25, 2.45, -distance), Vector3(1.55, 0.78, 0.12), Color(0.08, 0.16, 0.20), 0.05, 0.52)
 		_add_box(self, Vector3(-7.25, 2.84, -distance - 0.07), Vector3(0.92, 0.035, 0.03), Color(0.08, 0.80, 0.95), 0.0, 0.28)
+	# Recessed lane strips and deck edge markings give the firing line a designed, industrial read.
+	for side in [-1.0, 1.0]:
+		_add_box(self, Vector3(side * 2.34, 0.285, 0.15), Vector3(0.055, 0.025, 6.45), Color(0.96, 0.39, 0.09), 0.28, 0.38)
+		_add_box(self, Vector3(side * 2.22, 0.284, 0.15), Vector3(0.035, 0.022, 6.18), Color(0.15, 0.75, 0.90), 0.35, 0.32)
+	# A pair of recessed service trenches and segmented steel covers lead the eye downrange.
+	for side in [-1.0, 1.0]:
+		_add_box(self, Vector3(side * 6.6, 0.018, -27.0), Vector3(0.62, 0.035, 46.0), Color(0.055, 0.078, 0.09), 0.55, 0.64)
+		_add_box(self, Vector3(side * 6.6, 0.04, -27.0), Vector3(0.12, 0.025, 46.0), Color(0.90, 0.33, 0.08), 0.28, 0.48)
+		for distance in [-8.0, -13.0, -18.0, -23.0, -28.0, -33.0, -38.0, -43.0]:
+			_add_box(self, Vector3(side * 6.6, 0.047, distance), Vector3(0.54, 0.022, 0.045), Color(0.25, 0.34, 0.38), 0.68, 0.46)
+	# Repeating launch gates and tower-like supports create scale and a vanishing point.
+	for distance in [-14.0, -30.0, -46.0]:
+		for side in [-1.0, 1.0]:
+			_add_box(self, Vector3(side * 9.6, 3.15, distance), Vector3(0.24, 6.3, 0.28), Color(0.075, 0.12, 0.16), 0.62, 0.46)
+			_add_box(self, Vector3(side * 9.6, 3.12, distance + 0.16), Vector3(0.055, 5.5, 0.025), Color(0.94, 0.34, 0.08), 0.25, 0.4)
+		_add_box(self, Vector3(0.0, 6.15, distance), Vector3(19.2, 0.24, 0.28), Color(0.075, 0.12, 0.16), 0.62, 0.46)
+		_add_box(self, Vector3(0.0, 6.0, distance + 0.16), Vector3(18.2, 0.045, 0.035), Color(0.10, 0.66, 0.82), 0.2, 0.35)
+	# Distant utility buildings and stacked luminaires break up the bare horizon.
+	for side in [-1.0, 1.0]:
+		_add_box(self, Vector3(side * 14.3, 2.8, -51.5), Vector3(5.6, 5.6, 7.4), Color(0.075, 0.12, 0.16), 0.42, 0.72)
+		_add_box(self, Vector3(side * 14.3, 5.65, -51.5), Vector3(6.0, 0.18, 7.8), Color(0.12, 0.19, 0.23), 0.66, 0.48)
+		for floor_y in [1.7, 2.65, 3.6]:
+			_add_box(self, Vector3(side * 14.3, floor_y, -47.72), Vector3(3.8, 0.38, 0.035), Color(0.13, 0.53, 0.64), 0.22, 0.32)
+		for side_offset in [-1.0, 1.0]:
+			_add_box(self, Vector3(side * 14.3 + side_offset * 1.7, 1.0, -47.6), Vector3(0.12, 1.8, 0.10), Color(0.20, 0.29, 0.33), 0.65, 0.45)
 	# Side-mounted range lights frame the lane without spanning across the shot path.
 	for distance in [-5.0, -22.0, -40.0]:
 		for side in [-1.0, 1.0]:
@@ -279,7 +308,22 @@ func _add_target(at: Vector3, radius: float) -> void:
 	var center := _add_cylinder(target, Vector3(0.0, 0.0, 0.22), radius * 0.15, 0.06, Color(0.10, 0.78, 0.96), 0.12, 0.28, true)
 	center.rotation.x = PI * 0.5
 	target.position = at
-	_add_pipe(self, at + Vector3(0.0, -radius, 0.0), at + Vector3(0.0, -radius - 0.8, 0.0), 0.07, Color(0.22, 0.28, 0.30))
+	# Armored target yoke, illuminated readouts, and a weighted ground stand.
+	_add_box(target, Vector3(0.0, 0.0, -0.22), Vector3(radius * 2.18, radius * 2.05, 0.22), Color(0.075, 0.12, 0.15), 0.68, 0.52)
+	for side in [-1.0, 1.0]:
+		_add_box(target, Vector3(side * radius * 1.04, 0.0, -0.03), Vector3(0.17, radius * 2.25, 0.32), Color(0.12, 0.21, 0.25), 0.68, 0.44)
+		_add_box(target, Vector3(side * radius * 1.04, 0.0, 0.15), Vector3(0.035, radius * 1.58, 0.035), Color(0.94, 0.37, 0.09), 0.26, 0.38)
+		_add_box(target, Vector3(side * radius * 1.04, radius * 0.88, 0.15), Vector3(0.42, 0.16, 0.38), Color(0.10, 0.69, 0.84), 0.25, 0.28)
+	_add_box(target, Vector3(0.0, radius * 1.08, -0.02), Vector3(radius * 2.25, 0.18, 0.30), Color(0.10, 0.18, 0.22), 0.62, 0.46)
+	_add_pipe(self, at + Vector3(0.0, -radius, -0.12), at + Vector3(0.0, -radius - 0.8, -0.12), 0.11, Color(0.22, 0.29, 0.31))
+	_add_box(self, at + Vector3(0.0, -radius - 0.78, 0.0), Vector3(radius * 1.6, 0.16, 1.2), Color(0.08, 0.12, 0.14), 0.62, 0.56)
+	var target_glow := OmniLight3D.new()
+	target_glow.position = at + Vector3(0.0, 0.0, 0.9)
+	target_glow.light_color = Color(0.16, 0.66, 0.88)
+	target_glow.light_energy = 1.4
+	target_glow.omni_range = radius * 2.2
+	target_glow.shadow_enabled = false
+	add_child(target_glow)
 
 
 func _add_box(parent: Node3D, at: Vector3, size: Vector3, color: Color, metallic: float, roughness: float) -> MeshInstance3D:
