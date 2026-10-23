@@ -146,7 +146,7 @@ func _build_range() -> void:
 		_add_box(self, Vector3(0.0, 0.12, -distance), Vector3(4.2, 0.24, 0.14), Color(0.12, 0.18, 0.22), 0.03, 0.7)
 		_add_box(self, Vector3(-1.95, 0.22, -distance), Vector3(0.12, 0.42, 0.18), Color(0.92, 0.55, 0.12), 0.02, 0.58)
 		_add_box(self, Vector3(1.95, 0.22, -distance), Vector3(0.12, 0.42, 0.18), Color(0.92, 0.55, 0.12), 0.02, 0.58)
-	_add_target(Vector3(0.0, 2.2, -32.0), 2.5)
+	_add_target(Vector3(0.0, 2.9, -32.0), 2.5)
 	_add_target(Vector3(-5.0, 1.6, -46.0), 1.7)
 	_add_box(self, Vector3(-8.0, 0.025, -24.0), Vector3(0.12, 0.05, 48.0), Color(0.96, 0.48, 0.10), 0.0, 0.7)
 	_add_box(self, Vector3(8.0, 0.025, -24.0), Vector3(0.12, 0.05, 48.0), Color(0.96, 0.48, 0.10), 0.0, 0.7)
@@ -157,16 +157,18 @@ func _build_range_details() -> void:
 	_add_box(self, Vector3(0.0, 0.12, 0.15), Vector3(5.2, 0.24, 7.2), Color(0.25, 0.30, 0.32), 0.22, 0.82)
 	_add_box(self, Vector3(0.0, 0.255, 0.15), Vector3(4.8, 0.035, 6.8), Color(0.38, 0.42, 0.42), 0.08, 0.88)
 	for side in [-1.0, 1.0]:
-		_add_box(self, Vector3(side * 8.8, 0.38, -24.0), Vector3(0.52, 0.72, 50.0), Color(0.25, 0.31, 0.33), 0.12, 0.86)
-		_add_box(self, Vector3(side * 8.8, 0.76, -24.0), Vector3(0.57, 0.08, 50.0), Color(0.96, 0.48, 0.10), 0.04, 0.62)
+		_add_box(self, Vector3(side * 8.8, 0.16, -24.0), Vector3(0.38, 0.32, 50.0), Color(0.25, 0.31, 0.33), 0.12, 0.86)
+		_add_box(self, Vector3(side * 8.8, 0.34, -24.0), Vector3(0.42, 0.045, 50.0), Color(0.96, 0.48, 0.10), 0.04, 0.62)
 	for distance in [12.0, 24.0, 38.0]:
 		_add_box(self, Vector3(-7.25, 1.2, -distance), Vector3(0.18, 2.4, 0.18), Color(0.13, 0.19, 0.22), 0.04, 0.68)
 		_add_box(self, Vector3(-7.25, 2.45, -distance), Vector3(1.55, 0.78, 0.12), Color(0.08, 0.16, 0.20), 0.05, 0.52)
 		_add_box(self, Vector3(-7.25, 2.84, -distance - 0.07), Vector3(0.92, 0.035, 0.03), Color(0.08, 0.80, 0.95), 0.0, 0.28)
+	# Side-mounted range lights frame the lane without spanning across the shot path.
 	for distance in [-5.0, -22.0, -40.0]:
 		for side in [-1.0, 1.0]:
-			_add_box(self, Vector3(side * 9.4, 3.2, distance), Vector3(0.16, 6.4, 0.16), Color(0.16, 0.22, 0.25), 0.03, 0.62)
-		_add_box(self, Vector3(0.0, 6.35, distance), Vector3(18.8, 0.16, 0.16), Color(0.16, 0.22, 0.25), 0.03, 0.62)
+			_add_box(self, Vector3(side * 10.0, 2.4, distance), Vector3(0.14, 4.8, 0.14), Color(0.16, 0.22, 0.25), 0.03, 0.62)
+			_add_box(self, Vector3(side * 10.0, 4.85, distance), Vector3(0.9, 0.12, 0.34), Color(0.16, 0.22, 0.25), 0.04, 0.55)
+			_add_box(self, Vector3(side * 10.0, 4.77, distance), Vector3(0.65, 0.035, 0.20), Color(0.35, 0.84, 0.96), 0.01, 0.24)
 
 
 func _build_hud() -> void:
@@ -270,11 +272,11 @@ func _add_target(at: Vector3, radius: float) -> void:
 	add_child(target)
 	var backing := _add_cylinder(target, Vector3.ZERO, radius, 0.16, Color(0.11, 0.16, 0.19), 0.24, 0.65, true)
 	backing.rotation.x = PI * 0.5
-	var outer := _add_cylinder(target, Vector3(0.0, 0.0, -0.10), radius * 0.76, 0.05, Color(0.89, 0.36, 0.10), 0.18, 0.5, true)
+	var outer := _add_cylinder(target, Vector3(0.0, 0.0, 0.10), radius * 0.76, 0.05, Color(0.96, 0.42, 0.11), 0.18, 0.5, true)
 	outer.rotation.x = PI * 0.5
-	var inner := _add_cylinder(target, Vector3(0.0, 0.0, -0.14), radius * 0.40, 0.05, Color(0.82, 0.84, 0.77), 0.12, 0.45, true)
+	var inner := _add_cylinder(target, Vector3(0.0, 0.0, 0.16), radius * 0.40, 0.05, Color(0.92, 0.94, 0.87), 0.12, 0.45, true)
 	inner.rotation.x = PI * 0.5
-	var center := _add_cylinder(target, Vector3(0.0, 0.0, -0.18), radius * 0.15, 0.06, Color(0.10, 0.68, 0.82), 0.12, 0.28, true)
+	var center := _add_cylinder(target, Vector3(0.0, 0.0, 0.22), radius * 0.15, 0.06, Color(0.10, 0.78, 0.96), 0.12, 0.28, true)
 	center.rotation.x = PI * 0.5
 	target.position = at
 	_add_pipe(self, at + Vector3(0.0, -radius, 0.0), at + Vector3(0.0, -radius - 0.8, 0.0), 0.07, Color(0.22, 0.28, 0.30))
