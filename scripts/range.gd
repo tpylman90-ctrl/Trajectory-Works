@@ -33,6 +33,13 @@ var round_dimensions_label: Label
 var round_mass_label: Label
 var round_volume_label: Label
 var round_material_label: Label
+var round_preview_container: SubViewportContainer
+var round_station_slider: HSlider
+var round_station_label: Label
+var round_sculpt_hint: Label
+var round_mode := "pull"
+var round_drag_active := false
+var round_last_pointer := Vector2.ZERO
 var speed_slider: HSlider
 var elevation_slider: HSlider
 var wind_slider: HSlider
@@ -682,6 +689,7 @@ func _open_round_editor() -> void:
 		current_projectile["density"] = 7850.0
 	if not current_projectile.has("tip_length"):
 		current_projectile["tip_length"] = 0.0
+	_ensure_round_stations()
 	_build_round_editor()
 
 
@@ -783,6 +791,37 @@ func _build_round_editor() -> void:
 	round_material_picker.selected = initial_material
 	form.add_child(round_material_picker)
 
+	var sculpt_title := Label.new()
+	sculpt_title.text = "FREEFORM SHAPING"
+	sculpt_title.add_theme_color_override("font_color", Color(0.45, 0.86, 0.95))
+	form.add_child(sculpt_title)
+	var sculpt_modes := HBoxContainer.new()
+	sculpt_modes.add_theme_constant_override("separation", 4)
+	form.add_child(sculpt_modes)
+	var sculpt_mode_group := ButtonGroup.new()
+	for mode_name in ["PULL", "BEND", "TWIST", "ORBIT"]:
+		var mode_button := Button.new()
+		mode_button.text = mode_name
+		mode_button.toggle_mode = true
+		mode_button.button_group = sculpt_mode_group
+		mode_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		mode_button.button_pressed = mode_name == "PULL"
+		mode_button.pressed.connect(_set_round_sculpt_mode.bind(mode_name.to_lower()))
+		sculpt_modes.add_child(mode_button)
+	round_station_label = Label.new()
+	form.add_child(round_station_label)
+	round_station_slider = HSlider.new()
+	round_station_slider.min_value = 0
+	round_station_slider.max_value = 8
+	round_station_slider.step = 1
+	round_station_slider.value = 4
+	round_station_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	round_station_slider.value_changed.connect(_on_round_station_changed)
+	form.add_child(round_station_slider)
+	round_sculpt_hint = Label.new()
+	round_sculpt_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	round_sculpt_hint.add_theme_color_override("font_color", Color(0.70, 0.84, 0.89))
+	form.add_child(round_sculpt_hint)
 	round_diameter_slider = _add_round_editor_slider(form, "BODY DIAMETER", 80.0, 320.0, 5.0, float(current_projectile.get("diameter", 0.18)) * 1000.0)
 	round_length_slider = _add_round_editor_slider(form, "OVERALL LENGTH", 250.0, 1250.0, 25.0, maxf(float(current_projectile.get("length", 0.54)), 0.25) * 1000.0)
 	round_dimensions_label = Label.new()
@@ -802,7 +841,7 @@ func _build_round_editor() -> void:
 	preview_column.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	body.add_child(preview_column)
 	var preview_title := Label.new()
-	preview_title.text = "LIVE 3D PROFILE  •  DRAG SLIDERS TO RESHAPE"
+	preview_title.text = "LIVE 3D ROUND  •  TOUCH DRAG TO SCULPT"
 	preview_title.add_theme_color_override("font_color", Color(0.47, 0.83, 0.92))
 	preview_column.add_child(preview_title)
 	var preview_frame := PanelContainer.new()
@@ -815,7 +854,10 @@ func _build_round_editor() -> void:
 	preview_frame_style.set_border_width_all(1)
 	preview_frame_style.set_corner_radius_all(4)
 	preview_frame.add_theme_stylebox_override("panel", preview_frame_style)
-	var viewport_container := SubViewportContainer.new()
+	round_preview_container = SubViewportContainer.new()
+	var viewport_container := round_preview_container
+	viewport_container.mouse_filter = Control.MOUSE_FILTER_STOP
+	viewport_container.gui_input.connect(_on_round_preview_input)
 	viewport_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	viewport_container.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	viewport_container.stretch = true
@@ -829,7 +871,7 @@ func _build_round_editor() -> void:
 	_refresh_round_design()
 
 	var footer := Label.new()
-	footer.text = "TIP PROFILE CHANGES DRAG  •  MATERIAL + VOLUME SET MASS  •  TAKE YOUR DESIGN TO THE RANGE"
+	footer.text = "SELECT A STATION, THEN DRAG THE ROUND: PULL CHANGES WIDTH  •  BEND MOVES THE CENTERLINE  •  TWIST ADDS SPIRAL FLUTES"
 	footer.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	footer.add_theme_color_override("font_color", Color(0.52, 0.71, 0.78))
 	preview_column.add_child(footer)
@@ -838,6 +880,7 @@ func _build_round_editor() -> void:
 	round_material_picker.item_selected.connect(_on_round_material_changed)
 	round_diameter_slider.value_changed.connect(_on_round_design_changed)
 	round_length_slider.value_changed.connect(_on_round_design_changed)
+	_on_round_station_changed(round_station_slider.value)
 	_on_round_design_changed(0.0)
 
 
@@ -884,38 +927,38 @@ func _build_round_preview_scene() -> void:
 	preview_world.add_child(rim)
 	var pedestal := MeshInstance3D.new()
 	var pedestal_mesh := CylinderMesh.new()
-	pedestal_mesh.top_radius = 0.72
-	pedestal_mesh.bottom_radius = 0.78
-	pedestal_mesh.height = 0.10
+	pedestal_mesh.top_radius = 0.34
+	pedestal_mesh.bottom_radius = 0.37
+	pedestal_mesh.height = 0.035
 	pedestal_mesh.radial_segments = 48
 	pedestal.mesh = pedestal_mesh
-	pedestal.position = Vector3(0.0, -0.66, 0.0)
+	pedestal.position = Vector3(0.0, -0.42, 0.0)
 	pedestal.material_override = _material(Color(0.08, 0.16, 0.20), 0.78, 0.34)
 	preview_world.add_child(pedestal)
 	var accent := MeshInstance3D.new()
 	var accent_mesh := TorusMesh.new()
-	accent_mesh.inner_radius = 0.70
-	accent_mesh.outer_radius = 0.73
+	accent_mesh.inner_radius = 0.33
+	accent_mesh.outer_radius = 0.345
 	accent_mesh.rings = 48
 	accent_mesh.ring_segments = 12
 	accent.mesh = accent_mesh
-	accent.position = Vector3(0.0, -0.59, 0.0)
+	accent.position = Vector3(0.0, -0.395, 0.0)
 	accent.rotation.x = PI * 0.5
-	accent.material_override = _material(Color(0.96, 0.36, 0.08), 0.62, 0.3)
+	accent.material_override = _material(Color(0.10, 0.63, 0.78), 0.62, 0.3)
 	preview_world.add_child(accent)
 	round_preview_spin = Node3D.new()
 	preview_world.add_child(round_preview_spin)
 	var preview_camera := Camera3D.new()
-	preview_camera.position = Vector3(2.25, 1.18, 3.15)
-	preview_camera.fov = 37.0
+	preview_camera.position = Vector3(1.05, 0.78, 1.60)
+	preview_camera.fov = 32.0
 	preview_camera.current = true
 	preview_world.add_child(preview_camera)
 	preview_camera.look_at(Vector3.ZERO, Vector3.UP)
 
 
 func _process(delta: float) -> void:
-	if is_instance_valid(round_preview_spin) and is_instance_valid(round_editor_screen):
-		round_preview_spin.rotation.y += delta * 0.18
+	if is_instance_valid(round_preview_spin) and is_instance_valid(round_editor_screen) and round_mode != "orbit":
+		round_preview_spin.rotation.y += delta * 0.08
 
 
 func _on_round_design_changed(_value: float) -> void:
@@ -947,6 +990,118 @@ func _on_round_material_changed(_index: int) -> void:
 	_on_round_design_changed(0.0)
 
 
+func _ensure_round_stations() -> void:
+	var stations: Array = current_projectile.get("stations", [])
+	if stations.size() != 9:
+		stations.clear()
+		for _i in range(9):
+			stations.append({"pull": 1.0, "bend_x": 0.0, "bend_y": 0.0, "twist": 0.0})
+		current_projectile["stations"] = stations
+
+
+func _set_round_sculpt_mode(mode: String) -> void:
+	round_mode = mode
+	if is_instance_valid(round_sculpt_hint):
+		match mode:
+			"pull":
+				round_sculpt_hint.text = "DRAG UP/DOWN to thicken or taper the selected profile station."
+			"bend":
+				round_sculpt_hint.text = "DRAG to move the selected station sideways or vertically; neighbors blend smoothly."
+			"twist":
+				round_sculpt_hint.text = "DRAG HORIZONTALLY to spiral the round's subtle helical flutes."
+			_:
+				round_sculpt_hint.text = "DRAG to orbit the model. Choose PULL, BEND or TWIST to sculpt."
+	if is_instance_valid(round_preview_container):
+		round_preview_container.mouse_default_cursor_shape = Control.CURSOR_MOVE
+
+
+func _on_round_station_changed(value: float) -> void:
+	if not is_instance_valid(round_station_label):
+		return
+	var station := int(round(value))
+	var location := "TIP" if station == 0 else ("TAIL" if station == 8 else "BODY %02d%%" % int(round(float(station) / 8.0 * 100.0)))
+	var stations: Array = current_projectile.get("stations", [])
+	var values: Dictionary = stations[station] if stations.size() == 9 else {}
+	round_station_label.text = "STATION %d / 9  •  %s  •  WIDTH %0.2f×  •  TWIST %0.0f°" % [station + 1, location, float(values.get("pull", 1.0)), rad_to_deg(float(values.get("twist", 0.0)))]
+
+
+func _on_round_preview_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		round_drag_active = event.pressed
+		round_last_pointer = event.position
+		get_viewport().set_input_as_handled()
+	elif event is InputEventMouseMotion and round_drag_active:
+		_apply_round_drag(event.position - round_last_pointer)
+		round_last_pointer = event.position
+		get_viewport().set_input_as_handled()
+	elif event is InputEventScreenTouch:
+		round_drag_active = event.pressed
+		round_last_pointer = event.position
+		get_viewport().set_input_as_handled()
+	elif event is InputEventScreenDrag and round_drag_active:
+		_apply_round_drag(event.relative)
+		get_viewport().set_input_as_handled()
+
+
+func _apply_round_drag(relative: Vector2) -> void:
+	if round_mode == "orbit":
+		if is_instance_valid(round_preview_spin):
+			round_preview_spin.rotation.y += relative.x * 0.008
+			round_preview_spin.rotation.x = clampf(round_preview_spin.rotation.x - relative.y * 0.008, -0.8, 0.8)
+		return
+	_ensure_round_stations()
+	var stations: Array = current_projectile["stations"]
+	var index := clampi(int(round(round_station_slider.value)), 0, 8)
+	var station: Dictionary = stations[index].duplicate(true)
+	match round_mode:
+		"pull":
+			station["pull"] = clampf(float(station.get("pull", 1.0)) - relative.y * 0.009, 0.35, 2.0)
+		"bend":
+			station["bend_x"] = clampf(float(station.get("bend_x", 0.0)) + relative.x * 0.0012, -0.24, 0.24)
+			station["bend_y"] = clampf(float(station.get("bend_y", 0.0)) - relative.y * 0.0012, -0.24, 0.24)
+		"twist":
+			station["twist"] = clampf(float(station.get("twist", 0.0)) + relative.x * 0.012, -PI, PI)
+	stations[index] = station
+	current_projectile["stations"] = stations
+	_on_round_station_changed(float(index))
+	current_projectile["mass"] = _round_volume(current_projectile) * float(current_projectile.get("density", 7850.0))
+	_refresh_round_design()
+
+
+func _round_station_at(z: float, design: Dictionary) -> Dictionary:
+	var stations: Array = design.get("stations", [])
+	if stations.size() != 9:
+		return {"pull": 1.0, "bend_x": 0.0, "bend_y": 0.0, "twist": 0.0}
+	var u := clampf(inverse_lerp(-float(design.length) * 0.5, float(design.length) * 0.5, z), 0.0, 1.0)
+	var station_position := u * 8.0
+	var lower := clampi(int(floor(station_position)), 0, 8)
+	var upper := mini(lower + 1, 8)
+	var blend := station_position - float(lower)
+	blend = blend * blend * (3.0 - 2.0 * blend)
+	var first: Dictionary = stations[lower]
+	var second: Dictionary = stations[upper]
+	var result := {}
+	for key in ["pull", "bend_x", "bend_y", "twist"]:
+		var fallback := 1.0 if key == "pull" else 0.0
+		result[key] = lerpf(float(first.get(key, fallback)), float(second.get(key, fallback)), blend)
+	return result
+
+
+func _round_ring_point(radius: float, z: float, angle: float, design: Dictionary) -> Vector3:
+	var station := _round_station_at(z, design)
+	var twist := float(station.get("twist", 0.0))
+	var body_radius := float(design.diameter) * 0.5
+	var nose_start := -float(design.length) * 0.5 + float(design.get("tip_length", 0.0))
+	var flute_fade := smoothstep(nose_start, nose_start + body_radius * 0.9, z) * (1.0 - smoothstep(float(design.length) * 0.5 - body_radius * 0.6, float(design.length) * 0.5, z))
+	var flute := 1.0 + 0.07 * flute_fade * cos(6.0 * (angle - twist))
+	var scaled_radius := radius * float(station.get("pull", 1.0)) * flute
+	return Vector3(
+		float(station.get("bend_x", 0.0)) + scaled_radius * cos(angle),
+		float(station.get("bend_y", 0.0)) + scaled_radius * sin(angle),
+		z
+	)
+
+
 func _round_volume(design: Dictionary) -> float:
 	var radius := float(design.diameter) * 0.5
 	var length := float(design.length)
@@ -962,7 +1117,15 @@ func _round_volume(design: Dictionary) -> float:
 			nose_factor = 1.0
 		"Round":
 			nose_factor = 0.58
-	return body_volume + area * nose_length * nose_factor
+	var base_volume := body_volume + area * nose_length * nose_factor
+	var stations: Array = design.get("stations", [])
+	if stations.size() < 2:
+		return base_volume
+	var pull_area_factor := 0.0
+	for station in stations:
+		pull_area_factor += pow(clampf(float(station.get("pull", 1.0)), 0.35, 2.0), 2.0)
+	pull_area_factor /= float(stations.size())
+	return base_volume * pull_area_factor
 
 
 func _round_drag_coefficient(nose_shape: String) -> float:
@@ -983,22 +1146,22 @@ func _round_profile(design: Dictionary) -> Array[Vector2]:
 	var nose_length := minf(float(design.get("tip_length", radius * 2.7)), length * 0.45)
 	var body_end_z := -length * 0.5 + nose_length
 	var profile: Array[Vector2] = []
-	profile.append(Vector2(radius, length * 0.5))
-	profile.append(Vector2(radius, body_end_z))
-	for segment in range(1, 9):
-		var t := float(segment) / 8.0
+	for segment in range(33):
+		var along := float(segment) / 32.0
+		var z := lerpf(length * 0.5, -length * 0.5, along)
 		var ring_radius := radius
-		match str(design.get("nose", "Ogive")):
-			"Conical":
-				ring_radius = radius * (1.0 - t)
-			"Round":
-				var smooth := t * t * (3.0 - 2.0 * t)
-				ring_radius = radius * (1.0 - smooth)
-			"Flat":
-				ring_radius = radius
-			_:
-				ring_radius = radius * sqrt(maxf(0.0, 1.0 - t * t))
-		var z := lerpf(body_end_z, -length * 0.5, t)
+		if z < body_end_z and nose_length > 0.001:
+			var t := clampf(inverse_lerp(body_end_z, -length * 0.5, z), 0.0, 1.0)
+			match str(design.get("nose", "Ogive")):
+				"Conical":
+					ring_radius = radius * (1.0 - t)
+				"Round":
+					var smooth := t * t * (3.0 - 2.0 * t)
+					ring_radius = radius * (1.0 - smooth)
+				"Flat":
+					ring_radius = radius
+				_:
+					ring_radius = radius * sqrt(maxf(0.0, 1.0 - t * t))
 		profile.append(Vector2(ring_radius, z))
 	return profile
 
@@ -1006,9 +1169,9 @@ func _round_profile(design: Dictionary) -> Array[Vector2]:
 func _round_collision_points(design: Dictionary) -> PackedVector3Array:
 	var points := PackedVector3Array()
 	for ring in _round_profile(design):
-		for slice in range(16):
-			var angle := TAU * float(slice) / 16.0
-			points.append(Vector3(ring.x * cos(angle), ring.x * sin(angle), ring.y))
+		for slice in range(24):
+			var angle := TAU * float(slice) / 24.0
+			points.append(_round_ring_point(ring.x, ring.y, angle, design))
 	return points
 
 
@@ -1016,17 +1179,17 @@ func _build_round_mesh(design: Dictionary) -> ArrayMesh:
 	var profile := _round_profile(design)
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var slices := 32
+	var slices := 48
 	for segment in range(profile.size() - 1):
 		var first: Vector2 = profile[segment]
 		var second: Vector2 = profile[segment + 1]
 		for slice in range(slices):
 			var a0 := TAU * float(slice) / slices
 			var a1 := TAU * float(slice + 1) / slices
-			var p00 := Vector3(first.x * cos(a0), first.x * sin(a0), first.y)
-			var p01 := Vector3(first.x * cos(a1), first.x * sin(a1), first.y)
-			var p10 := Vector3(second.x * cos(a0), second.x * sin(a0), second.y)
-			var p11 := Vector3(second.x * cos(a1), second.x * sin(a1), second.y)
+			var p00 := _round_ring_point(first.x, first.y, a0, design)
+			var p01 := _round_ring_point(first.x, first.y, a1, design)
+			var p10 := _round_ring_point(second.x, second.y, a0, design)
+			var p11 := _round_ring_point(second.x, second.y, a1, design)
 			tool.add_vertex(p00)
 			tool.add_vertex(p10)
 			tool.add_vertex(p01)
@@ -1035,20 +1198,25 @@ func _build_round_mesh(design: Dictionary) -> ArrayMesh:
 			tool.add_vertex(p11)
 	var radius := float(design.diameter) * 0.5
 	var back_z := float(design.length) * 0.5
+	var back_station := _round_station_at(back_z, design)
 	for slice in range(slices):
 		var a0 := TAU * float(slice) / slices
 		var a1 := TAU * float(slice + 1) / slices
-		tool.add_vertex(Vector3(0.0, 0.0, back_z))
-		tool.add_vertex(Vector3(radius * cos(a1), radius * sin(a1), back_z))
-		tool.add_vertex(Vector3(radius * cos(a0), radius * sin(a0), back_z))
+		var center := Vector3(float(back_station.get("bend_x", 0.0)), float(back_station.get("bend_y", 0.0)), back_z)
+		tool.add_vertex(center)
+		tool.add_vertex(_round_ring_point(radius, back_z, a1, design))
+		tool.add_vertex(_round_ring_point(radius, back_z, a0, design))
 	if str(design.get("nose", "")) == "Flat":
 		var front_z := -float(design.length) * 0.5
+		var front_station := _round_station_at(front_z, design)
 		for slice in range(slices):
 			var a0 := TAU * float(slice) / slices
 			var a1 := TAU * float(slice + 1) / slices
-			tool.add_vertex(Vector3(0.0, 0.0, front_z))
-			tool.add_vertex(Vector3(radius * cos(a0), radius * sin(a0), front_z))
-			tool.add_vertex(Vector3(radius * cos(a1), radius * sin(a1), front_z))
+			var center := Vector3(float(front_station.get("bend_x", 0.0)), float(front_station.get("bend_y", 0.0)), front_z)
+			tool.add_vertex(center)
+			tool.add_vertex(_round_ring_point(radius, front_z, a0, design))
+			tool.add_vertex(_round_ring_point(radius, front_z, a1, design))
+	tool.index()
 	tool.generate_normals()
 	return tool.commit()
 
@@ -1081,7 +1249,8 @@ func _refresh_round_design() -> void:
 		if is_instance_valid(preview_camera):
 			var length := float(current_projectile.length)
 			var diameter := float(current_projectile.diameter)
-			preview_camera.position = Vector3(length * 1.75, diameter * 6.0, length * 2.8)
+			var camera_distance := maxf(length * 1.55, diameter * 4.0)
+			preview_camera.position = Vector3(camera_distance * 0.58, diameter * 2.4, camera_distance * 0.89)
 			preview_camera.look_at(Vector3.ZERO, Vector3.UP)
 
 
@@ -1094,6 +1263,7 @@ func _save_custom_round() -> void:
 		"material": str(current_projectile.get("material", "Steel")),
 		"density": float(current_projectile.get("density", 7850.0)),
 		"tip_length": float(current_projectile.get("tip_length", 0.24)),
+		"stations": current_projectile.get("stations", []),
 	}
 	var file := FileAccess.open("user://trajectory_round.json", FileAccess.WRITE)
 	if file == null:
@@ -1131,6 +1301,7 @@ func _load_saved_round() -> void:
 		"density": float(material_data.density),
 		"color": material_data.color,
 		"tip_length": clampf(float(saved.get("tip_length", diameter * 1.35)), 0.01, length * 0.45),
+		"stations": saved.get("stations", []),
 		"cd": _round_drag_coefficient(nose),
 	}
 	current_projectile["mass"] = _round_volume(current_projectile) * float(current_projectile.density)
