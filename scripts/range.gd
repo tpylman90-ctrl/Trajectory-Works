@@ -45,6 +45,8 @@ var round_station_slider: HSlider
 var round_station_label: Label
 var round_sculpt_hint: Label
 var round_surface_picker: OptionButton
+var round_tip_surface_picker: OptionButton
+var round_tip_rib_depth_slider: HSlider
 var round_rib_count_slider: HSlider
 var round_rib_depth_slider: HSlider
 var round_spiral_turns_slider: HSlider
@@ -1151,6 +1153,8 @@ func _start_fresh_round() -> void:
 		"surface_pattern": "smooth",
 		"rib_count": 6,
 		"rib_depth": 0.0,
+		"tip_surface_pattern": "smooth",
+		"tip_rib_depth": 0.0,
 		"spiral_turns": 0.0,
 	}
 	_ensure_round_stations()
@@ -1169,6 +1173,10 @@ func _start_fresh_round() -> void:
 		round_rib_count_slider.set_value_no_signal(6.0)
 	if is_instance_valid(round_rib_depth_slider):
 		round_rib_depth_slider.set_value_no_signal(0.0)
+	if is_instance_valid(round_tip_surface_picker):
+		round_tip_surface_picker.select(0)
+	if is_instance_valid(round_tip_rib_depth_slider):
+		round_tip_rib_depth_slider.set_value_no_signal(0.0)
 	if is_instance_valid(round_spiral_turns_slider):
 		round_spiral_turns_slider.set_value_no_signal(0.0)
 	_set_round_sculpt_mode("pull")
@@ -1347,12 +1355,21 @@ func _build_round_editor() -> void:
 
 	_add_round_editor_section(surface_page, "SURFACE DETAIL", "Surface patterns add visible rifling and influence spin and drag during flight.")
 	round_surface_picker = OptionButton.new()
-	round_surface_picker.add_item("Smooth jacket")
-	round_surface_picker.add_item("Raised helical ridges")
-	round_surface_picker.add_item("Cut helical grooves")
+	round_surface_picker.add_item("Smooth body")
+	round_surface_picker.add_item("Raised body ribs")
+	round_surface_picker.add_item("Cut body channels")
 	surface_page.add_child(round_surface_picker)
-	round_rib_count_slider = _add_round_editor_slider(surface_page, "RIDGE / GROOVE COUNT", 3.0, 12.0, 1.0, float(current_projectile.get("rib_count", 6)))
-	round_rib_depth_slider = _add_round_editor_slider(surface_page, "DEPTH  •  MM", 0.0, 8.0, 0.25, float(current_projectile.get("rib_depth", 0.002)) * 1000.0)
+	round_rib_count_slider = _add_round_editor_slider(surface_page, "BODY RIB / CHANNEL COUNT", 3.0, 12.0, 1.0, float(current_projectile.get("rib_count", 6)))
+	round_rib_depth_slider = _add_round_editor_slider(surface_page, "BODY RELIEF  •  MM", 0.0, 8.0, 0.25, float(current_projectile.get("rib_depth", 0.002)) * 1000.0)
+	var tip_surface_label := Label.new()
+	tip_surface_label.text = "TIP SURFACE"
+	surface_page.add_child(tip_surface_label)
+	round_tip_surface_picker = OptionButton.new()
+	round_tip_surface_picker.add_item("Smooth tip")
+	round_tip_surface_picker.add_item("Raised tip ribs")
+	round_tip_surface_picker.add_item("Cut tip channels")
+	surface_page.add_child(round_tip_surface_picker)
+	round_tip_rib_depth_slider = _add_round_editor_slider(surface_page, "TIP RELIEF  •  MM", 0.0, 8.0, 0.25, float(current_projectile.get("tip_rib_depth", 0.0)) * 1000.0)
 	round_spiral_turns_slider = _add_round_editor_slider(surface_page, "SPIRAL TURNS", -3.0, 3.0, 0.25, float(current_projectile.get("spiral_turns", 0.0)))
 	round_surface_info = Label.new()
 	round_surface_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -1441,8 +1458,11 @@ func _build_round_editor() -> void:
 	round_surface_picker.item_selected.connect(_on_round_surface_changed)
 	round_rib_count_slider.value_changed.connect(_on_round_surface_changed)
 	round_rib_depth_slider.value_changed.connect(_on_round_surface_changed)
+	round_tip_surface_picker.item_selected.connect(_on_round_surface_changed)
+	round_tip_rib_depth_slider.value_changed.connect(_on_round_surface_changed)
 	round_spiral_turns_slider.value_changed.connect(_on_round_surface_changed)
 	round_surface_picker.select(clampi(1 if str(current_projectile.get("surface_pattern", "smooth")) == "ridges" else (2 if str(current_projectile.get("surface_pattern", "smooth")) == "grooves" else 0), 0, 2))
+	round_tip_surface_picker.select(clampi(1 if str(current_projectile.get("tip_surface_pattern", "smooth")) == "ridges" else (2 if str(current_projectile.get("tip_surface_pattern", "smooth")) == "grooves" else 0), 0, 2))
 	_on_round_surface_changed(0.0)
 	_on_round_station_changed(round_station_slider.value)
 	_on_round_design_changed(0.0)
@@ -1596,14 +1616,27 @@ func _on_round_surface_changed(_value: float = 0.0) -> void:
 	current_projectile["surface_pattern"] = pattern
 	current_projectile["rib_count"] = int(round_rib_count_slider.value) if is_instance_valid(round_rib_count_slider) else 6
 	current_projectile["rib_depth"] = round_rib_depth_slider.value / 1000.0 if is_instance_valid(round_rib_depth_slider) else 0.0
+	var tip_pattern := "smooth"
+	if is_instance_valid(round_tip_surface_picker):
+		if round_tip_surface_picker.selected == 1:
+			tip_pattern = "ridges"
+		elif round_tip_surface_picker.selected == 2:
+			tip_pattern = "grooves"
+	current_projectile["tip_surface_pattern"] = tip_pattern
+	current_projectile["tip_rib_depth"] = round_tip_rib_depth_slider.value / 1000.0 if is_instance_valid(round_tip_rib_depth_slider) else 0.0
 	current_projectile["spiral_turns"] = round_spiral_turns_slider.value if is_instance_valid(round_spiral_turns_slider) else 0.0
 	current_projectile["mass"] = _round_volume(current_projectile) * float(current_projectile.get("density", 7850.0))
 	if is_instance_valid(round_surface_info):
-		var description := "Smooth jacket: choose ridges or grooves to add a patterned surface."
-		if pattern != "smooth":
-			var chirality := "right hand" if float(current_projectile.spiral_turns) > 0.0 else ("left hand" if float(current_projectile.spiral_turns) < 0.0 else "straight ribs")
-			var spin_note := "Air drag adds spin when helix turns are nonzero." if absf(float(current_projectile.spiral_turns)) > 0.001 else "Set helix turns to create spin from air drag."
-			description = "%s %d × %0.1f mm  •  %0.2f turns over body (%s). %s" % ["Raised ribs" if pattern == "ridges" else "Cut grooves", int(current_projectile.rib_count), float(current_projectile.rib_depth) * 1000.0, absf(float(current_projectile.spiral_turns)), chirality, spin_note]
+		var description := "Choose ribs or channels for the body and tip independently. Spiral features can add spin in flight."
+		if pattern != "smooth" or tip_pattern != "smooth":
+			var chirality := "right hand" if float(current_projectile.spiral_turns) > 0.0 else ("left hand" if float(current_projectile.spiral_turns) < 0.0 else "straight")
+			description = "Body: %s • Tip: %s • %d features • %0.2f turns (%s)" % [
+				"ribs" if pattern == "ridges" else ("channels" if pattern == "grooves" else "smooth"),
+				"ribs" if tip_pattern == "ridges" else ("channels" if tip_pattern == "grooves" else "smooth"),
+				int(current_projectile.rib_count),
+				absf(float(current_projectile.spiral_turns)),
+				chirality
+			]
 		round_surface_info.text = description
 	_refresh_round_design()
 
@@ -1714,16 +1747,24 @@ func _round_ring_point(radius: float, z: float, angle: float, design: Dictionary
 	var body_fade := smoothstep(nose_start, nose_start + body_radius * 0.9, z) * (1.0 - smoothstep(float(design.length) * 0.5 - body_radius * 0.6, float(design.length) * 0.5, z))
 	var rib_count := maxi(int(design.get("rib_count", 6)), 3)
 	var pattern := str(design.get("surface_pattern", "smooth"))
+	var tip_pattern := str(design.get("tip_surface_pattern", "smooth"))
 	var pull := maxf(float(station.get("pull", 1.0)), 0.0)
 	var base_radius := radius * pull
-	# Keep flute slope below the ring radius so extreme rib counts cannot fold
-	# neighboring triangles over each other and create dark gaps in the preview.
+	# Bound relief by local ring radius and feature count to keep adjacent mesh
+	# faces from folding over each other at tight tips or thin pulled stations.
 	var safe_rib_depth := minf(body_radius * 0.18, base_radius * 0.65 / float(rib_count))
-	var amplitude := minf(maxf(float(design.get("rib_depth", 0.0)), 0.0), safe_rib_depth)
-	var ridge_sign := 1.0 if pattern == "ridges" else -1.0
+	var body_amplitude := minf(maxf(float(design.get("rib_depth", 0.0)), 0.0), safe_rib_depth)
+	var tip_amplitude := minf(maxf(float(design.get("tip_rib_depth", 0.0)), 0.0), safe_rib_depth)
+	var body_sign := 1.0 if pattern == "ridges" else -1.0
+	var tip_sign := 1.0 if tip_pattern == "ridges" else -1.0
 	var rib_offset := 0.0
-	if pattern != "smooth" and amplitude > 0.00001:
-		rib_offset = ridge_sign * amplitude * body_fade * cos(float(rib_count) * (angle - twist))
+	if pattern != "smooth" and body_amplitude > 0.00001:
+		rib_offset += body_sign * body_amplitude * body_fade * cos(float(rib_count) * (angle - twist))
+	var tip_start := -float(design.length) * 0.5
+	var tip_fade_length := maxf(float(design.get("tip_length", body_radius * 1.35)) * 0.18, body_radius * 0.12)
+	var tip_fade := 1.0 - smoothstep(tip_start, tip_start + tip_fade_length, z)
+	if tip_pattern != "smooth" and tip_amplitude > 0.00001:
+		rib_offset += tip_sign * tip_amplitude * tip_fade * cos(float(rib_count) * (angle - twist))
 	var scaled_radius := maxf(base_radius + rib_offset, radius * 0.12)
 	return Vector3(
 		float(station.get("bend_x", 0.0)) + scaled_radius * cos(angle),
@@ -1752,6 +1793,10 @@ func _round_volume(design: Dictionary) -> float:
 	if surface_pattern != "smooth":
 		var depth_ratio := minf(float(design.get("rib_depth", 0.0)) / maxf(radius, 0.001), 0.18)
 		base_volume *= 1.0 + 0.5 * depth_ratio * depth_ratio
+	var tip_pattern := str(design.get("tip_surface_pattern", "smooth"))
+	if tip_pattern != "smooth":
+		var tip_depth_ratio := minf(float(design.get("tip_rib_depth", 0.0)) / maxf(radius, 0.001), 0.18)
+		base_volume *= 1.0 + 0.5 * tip_depth_ratio * tip_depth_ratio * clampf(nose_length / maxf(length, 0.001), 0.0, 0.45)
 	var stations: Array = design.get("stations", [])
 	if stations.size() < 2:
 		return base_volume
@@ -1913,6 +1958,8 @@ func _save_custom_round() -> void:
 		"surface_pattern": str(current_projectile.get("surface_pattern", "smooth")),
 		"rib_count": int(current_projectile.get("rib_count", 6)),
 		"rib_depth": float(current_projectile.get("rib_depth", 0.0)),
+		"tip_surface_pattern": str(current_projectile.get("tip_surface_pattern", "smooth")),
+		"tip_rib_depth": float(current_projectile.get("tip_rib_depth", 0.0)),
 		"spiral_turns": float(current_projectile.get("spiral_turns", 0.0)),
 	}
 	var file := FileAccess.open("user://trajectory_round.json", FileAccess.WRITE)
@@ -1955,6 +2002,8 @@ func _load_saved_round() -> void:
 		"surface_pattern": str(saved.get("surface_pattern", "grooves")),
 		"rib_count": clampi(int(saved.get("rib_count", 6)), 3, 12),
 		"rib_depth": clampf(float(saved.get("rib_depth", 0.008)), 0.0, 0.008),
+		"tip_surface_pattern": str(saved.get("tip_surface_pattern", "smooth")),
+		"tip_rib_depth": clampf(float(saved.get("tip_rib_depth", 0.0)), 0.0, 0.008),
 		"spiral_turns": clampf(float(saved.get("spiral_turns", 0.0)), -3.0, 3.0),
 		"cd": _round_drag_coefficient(nose),
 	}
