@@ -841,7 +841,8 @@ func _add_target(at: Vector3, radius: float) -> Node3D:
 		for bogie_z in [-1.55, 0.85]:
 			var wheel := _add_cylinder(target, Vector3(side * radius * 1.45, chassis_y - 0.26, bogie_z), 0.32, 0.20, Color(0.30, 0.39, 0.41), 0.78, 0.32)
 			wheel.rotation.z = PI * 0.5
-			_add_torus(target, Vector3(side * radius * 1.57, chassis_y - 0.26, bogie_z), 0.22, 0.035, Color(0.78, 0.34, 0.12), 0.72)
+			var wheel_hub := _add_cylinder(target, Vector3(side * radius * 1.55, chassis_y - 0.26, bogie_z), 0.13, 0.055, Color(0.78, 0.34, 0.12), 0.72, 0.32)
+			wheel_hub.rotation.z = PI * 0.5
 		_add_box(target, Vector3(side * radius * 1.28, chassis_y + 0.74, -0.20), Vector3(0.72, 0.62, 1.05), Color(0.08, 0.17, 0.22), 0.68, 0.34)
 		_add_pipe(target, Vector3(side * radius * 1.34, chassis_y + 0.92, -0.20), Vector3(side * radius * 0.74, -0.62, -0.02), 0.15, Color(0.44, 0.51, 0.52))
 		_add_pipe(target, Vector3(side * radius * 0.74, -0.62, -0.02), Vector3(side * radius * 0.74, -radius, -0.02), 0.11, Color(0.72, 0.31, 0.13))
