@@ -3,6 +3,10 @@ extends Node3D
 const RANGE_LENGTH := 2000.0
 const AIR_DENSITY := 1.225
 const SEA_LEVEL_SOUND_SPEED := 343.0
+const AIR_GAS_CONSTANT := 287.05
+const AIR_GAMMA := 1.4
+const AIR_GRAVITY := 9.80665
+const EARTH_RADIUS := 6371000.0
 const MAX_SHOT_FLIGHT_TIME := 900.0
 const MAX_SHOT_TRAVEL := 2500000.0
 const PROJECTILE_TYPES := [
@@ -37,6 +41,7 @@ var round_preview_container: SubViewportContainer
 var round_station_slider: HSlider
 var round_station_label: Label
 var round_sculpt_hint: Label
+var round_mode_buttons: Array[Button] = []
 var round_mode := "pull"
 var round_drag_active := false
 var round_last_pointer := Vector2.ZERO
@@ -693,6 +698,42 @@ func _open_round_editor() -> void:
 	_build_round_editor()
 
 
+func _start_fresh_round() -> void:
+	var steel: Dictionary = ROUND_MATERIALS[1]
+	current_projectile = {
+		"name": "Custom round",
+		"shape": "custom",
+		"diameter": 0.18,
+		"length": 0.54,
+		"nose": "Ogive",
+		"material": str(steel.name),
+		"density": float(steel.density),
+		"color": steel.color,
+		"tip_length": 0.243,
+		"cd": _round_drag_coefficient("Ogive"),
+	}
+	_ensure_round_stations()
+	custom_round_active = true
+	round_mode = "pull"
+	for mode_button in round_mode_buttons:
+		mode_button.button_pressed = mode_button.text == "PULL"
+	if is_instance_valid(round_station_slider):
+		round_station_slider.set_value_no_signal(4.0)
+		_on_round_station_changed(4.0)
+	if is_instance_valid(round_preview_spin):
+		round_preview_spin.rotation = Vector3.ZERO
+	_set_round_sculpt_mode("pull")
+	if is_instance_valid(round_nose_picker):
+		round_nose_picker.select(0)
+	if is_instance_valid(round_material_picker):
+		round_material_picker.select(1)
+	if is_instance_valid(round_diameter_slider):
+		round_diameter_slider.set_value_no_signal(180.0)
+	if is_instance_valid(round_length_slider):
+		round_length_slider.set_value_no_signal(540.0)
+	_on_round_design_changed(0.0)
+
+
 func _build_round_editor() -> void:
 	var layer := get_node_or_null("RoundEditorLayer") as CanvasLayer
 	if layer == null:
@@ -768,6 +809,12 @@ func _build_round_editor() -> void:
 	instructions.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	instructions.add_theme_color_override("font_color", Color(0.70, 0.84, 0.89))
 	form.add_child(instructions)
+	var fresh_round_button := Button.new()
+	fresh_round_button.text = "START FRESH ROUND"
+	fresh_round_button.custom_minimum_size.y = 42.0
+	fresh_round_button.add_theme_color_override("font_color", Color(0.55, 0.94, 1.0))
+	fresh_round_button.pressed.connect(_start_fresh_round)
+	form.add_child(fresh_round_button)
 
 	var nose_label := Label.new()
 	nose_label.text = "NOSE PROFILE"
@@ -799,6 +846,7 @@ func _build_round_editor() -> void:
 	sculpt_modes.add_theme_constant_override("separation", 4)
 	form.add_child(sculpt_modes)
 	var sculpt_mode_group := ButtonGroup.new()
+	round_mode_buttons.clear()
 	for mode_name in ["PULL", "BEND", "TWIST", "ORBIT"]:
 		var mode_button := Button.new()
 		mode_button.text = mode_name
@@ -807,6 +855,7 @@ func _build_round_editor() -> void:
 		mode_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		mode_button.button_pressed = mode_name == "PULL"
 		mode_button.pressed.connect(_set_round_sculpt_mode.bind(mode_name.to_lower()))
+		round_mode_buttons.append(mode_button)
 		sculpt_modes.add_child(mode_button)
 	round_station_label = Label.new()
 	form.add_child(round_station_label)
@@ -1125,6 +1174,14 @@ func _round_volume(design: Dictionary) -> float:
 	return base_volume * pull_area_factor
 
 
+func _round_max_pull(design: Dictionary) -> float:
+	var stations: Array = design.get("stations", [])
+	var maximum := 0.0 if design.shape == "custom" and not stations.is_empty() else 1.0
+	for station in stations:
+		maximum = maxf(maximum, clampf(float(station.get("pull", 1.0)), 0.35, 2.0))
+	return maximum
+
+
 func _round_drag_coefficient(nose_shape: String) -> float:
 	match nose_shape:
 		"Conical":
@@ -1410,7 +1467,8 @@ func _fire_test_shot() -> void:
 	projectile.name = "TestProjectile_%02d" % shot_count
 	projectile.mass = float(design.mass)
 	projectile.linear_damp = 0.0
-	projectile.angular_damp = 1.5
+	projectile.gravity_scale = 0.0
+	projectile.angular_damp = 0.35
 	projectile.continuous_cd = true
 	projectile.contact_monitor = true
 	projectile.max_contacts_reported = 4
@@ -1479,7 +1537,9 @@ func _fire_test_shot() -> void:
 		var muzzle_offset := float(barrel_pivot.get_meta("muzzle_offset", -6.12))
 		projectile.global_position = barrel_pivot.to_global(Vector3(0.0, 0.0, muzzle_offset))
 		muzzle_forward = -barrel_pivot.global_transform.basis.z.normalized()
-	projectile.linear_velocity = muzzle_forward * speed_slider.value
+	var stable_up := Vector3.UP if absf(muzzle_forward.normalized().dot(Vector3.UP)) < 0.98 else Vector3.RIGHT
+	projectile.look_at(projectile.global_position + muzzle_forward.normalized(), stable_up)
+	projectile.linear_velocity = muzzle_forward.normalized() * speed_slider.value
 	last_projectile = projectile
 	if projectile_camera_enabled:
 		followed_projectile = projectile
@@ -1490,42 +1550,74 @@ func _fire_test_shot() -> void:
 	# Shots remain active until impact; the long failsafe only cleans up runaway bodies.
 
 
-func _physics_process(delta: float) -> void:
+func _atmosphere_state(altitude: float) -> Dictionary:
+	var h := maxf(altitude, 0.0)
+	var temperature := 288.15
+	var density := AIR_DENSITY
+	if h <= 11000.0:
+		temperature = 288.15 - 0.0065 * h
+		density = AIR_DENSITY * pow(temperature / 288.15, 4.25588)
+	elif h <= 20000.0:
+		temperature = 216.65
+		density = 0.36391 * exp(-(h - 11000.0) / 6341.6)
+	elif h <= 32000.0:
+		temperature = 216.65 + 0.001 * (h - 20000.0)
+		var density_at_20km := 0.36391 * exp(-9000.0 / 6341.6)
+		density = density_at_20km * pow(temperature / 216.65, -(AIR_GRAVITY / (AIR_GAS_CONSTANT * 0.001)) - 1.0)
+	else:
+		temperature = 228.65
+		var density_at_32km := 0.36391 * exp(-9000.0 / 6341.6) * pow(228.65 / 216.65, -(AIR_GRAVITY / (AIR_GAS_CONSTANT * 0.001)) - 1.0)
+		density = density_at_32km * exp(-(h - 32000.0) / 7000.0)
+	return {
+		"density": maxf(density, 0.0),
+		"sound_speed": sqrt(AIR_GAMMA * AIR_GAS_CONSTANT * temperature),
+	}
+
+
+func _mach_drag_multiplier(mach: float) -> float:
+	var transonic_peak := 0.28 * exp(-pow((mach - 1.0) / 0.32, 2.0))
+	var high_mach_reduction := 0.08 * clampf((mach - 3.0) / 2.0, 0.0, 1.0)
+	return 1.0 + transonic_peak - high_mach_reduction
+
+
+func _physics_process(_delta: float) -> void:
 	for shot_id in active_shots.keys():
 		var shot: Dictionary = active_shots[shot_id]
 		var projectile: RigidBody3D = shot.body
 		if not is_instance_valid(projectile):
 			active_shots.erase(shot_id)
 			continue
+		var altitude := maxf(projectile.global_position.y, 0.0)
+		var local_gravity := AIR_GRAVITY * pow(EARTH_RADIUS / (EARTH_RADIUS + altitude), 2.0)
+		projectile.apply_central_force(Vector3.DOWN * projectile.mass * local_gravity)
 		var velocity := projectile.linear_velocity
 		var relative_air_velocity := velocity - Vector3(float(projectile.get_meta("wind_x")), 0.0, 0.0)
 		var speed := relative_air_velocity.length()
 		if speed > 0.01:
 			var design: Dictionary = shot.design
-			var radius := float(design.diameter) * 0.5
+			var shape_width_scale := _round_max_pull(design) if design.shape == "custom" else 1.0
+			var radius := float(design.diameter) * 0.5 * shape_width_scale
 			var projected_area := PI * radius * radius
 			var effective_cd := float(design.cd)
+			var axis := -projectile.global_transform.basis.z.normalized()
 			if design.shape != "sphere":
-				var axis := -projectile.global_transform.basis.z.normalized()
 				var air_direction := relative_air_velocity.normalized()
 				var axial_alignment := clampf(absf(axis.dot(air_direction)), 0.0, 1.0)
 				var side_on := sqrt(1.0 - axial_alignment * axial_alignment)
-				var side_area := float(design.length) * float(design.diameter) * side_on
+				var side_area := float(design.length) * float(design.diameter) * shape_width_scale * side_on
 				projected_area = projected_area * axial_alignment + side_area
 				effective_cd *= (axial_alignment + 1.6 * side_on) / maxf(axial_alignment + side_on, 0.001)
-			var density := AIR_DENSITY * exp(-maxf(projectile.global_position.y, 0.0) / 8500.0)
-			var mach := speed / SEA_LEVEL_SOUND_SPEED
-			var mach_drag_factor := 1.0
-			if mach >= 0.8 and mach < 1.2:
-				mach_drag_factor = lerpf(1.0, 1.28, (mach - 0.8) / 0.4)
-			elif mach >= 1.2 and mach < 3.0:
-				mach_drag_factor = lerpf(1.28, 0.96, (mach - 1.2) / 1.8)
-			elif mach >= 3.0:
-				mach_drag_factor = 0.96
-			var drag := 0.5 * density * effective_cd * mach_drag_factor * projected_area * speed * speed
+			var atmosphere := _atmosphere_state(projectile.global_position.y)
+			var density := float(atmosphere.density)
+			var mach := speed / maxf(float(atmosphere.sound_speed), 1.0)
+			var drag := 0.5 * density * effective_cd * _mach_drag_multiplier(mach) * projected_area * speed * speed
 			projectile.apply_central_force(-relative_air_velocity.normalized() * drag)
-			if velocity.length() > 1.0:
-				projectile.look_at(projectile.global_position + velocity.normalized(), Vector3.UP)
+			if design.shape != "sphere" and speed > 1.0:
+				var dynamic_pressure := 0.5 * density * speed * speed
+				var alignment_error := axis.cross(relative_air_velocity.normalized())
+				var stability_torque := alignment_error * minf(dynamic_pressure * projected_area * float(design.length) * 0.00004, 30.0)
+				var rotational_damping := projectile.angular_velocity * minf(dynamic_pressure * projected_area * float(design.length) * 0.000003, 5.0)
+				projectile.apply_torque(stability_torque - rotational_damping)
 		if projectile == followed_projectile:
 			if is_instance_valid(ground_visual):
 				ground_visual.global_position = Vector3(projectile.global_position.x, ground_home.y, projectile.global_position.z)
@@ -1542,6 +1634,109 @@ func _physics_process(delta: float) -> void:
 		active_shots[shot_id] = shot
 
 
+func _make_fx_material(color: Color, energy: float) -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.albedo_color = color
+	material.emission_enabled = true
+	material.emission = Color(color.r, color.g, color.b, 1.0)
+	material.emission_energy_multiplier = energy
+	return material
+
+
+func _spawn_impact_splash(position: Vector3, normal: Vector3, design: Dictionary, impact_speed: float) -> void:
+	var effect := Node3D.new()
+	effect.name = "RoundImpactSplash"
+	add_child(effect)
+	effect.global_position = position
+	var surface_normal := normal.normalized() if normal.length_squared() > 0.001 else Vector3.UP
+	var impact_energy_mj := 0.5 * float(design.get("mass", 1.0)) * impact_speed * impact_speed / 1000000.0
+	var burst_scale := clampf(sqrt(maxf(impact_energy_mj, 0.1) / 25.0), 0.75, 2.2)
+
+	var flash := MeshInstance3D.new()
+	var flash_mesh := SphereMesh.new()
+	flash_mesh.radius = 0.22
+	flash_mesh.height = 0.44
+	flash_mesh.radial_segments = 20
+	flash_mesh.rings = 10
+	flash.mesh = flash_mesh
+	var flash_material := _make_fx_material(Color(0.30, 0.86, 1.0, 0.92), 5.0)
+	flash.material_override = flash_material
+	flash.scale = Vector3.ONE * 0.18
+	effect.add_child(flash)
+	var flash_tween := effect.create_tween().set_parallel(true)
+	flash_tween.tween_property(flash, "scale", Vector3.ONE * 4.8 * burst_scale, 0.34).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	flash_tween.tween_property(flash_material, "albedo_color", Color(0.30, 0.86, 1.0, 0.0), 0.34)
+
+	var ring := MeshInstance3D.new()
+	var ring_mesh := TorusMesh.new()
+	ring_mesh.inner_radius = 0.18
+	ring_mesh.outer_radius = 0.24
+	ring_mesh.rings = 32
+	ring_mesh.ring_segments = 10
+	ring.mesh = ring_mesh
+	ring.material_override = _make_fx_material(Color(1.0, 0.38, 0.10, 0.95), 4.0)
+	ring.scale = Vector3.ONE * 0.22
+	var ring_right := surface_normal.cross(Vector3.UP)
+	if ring_right.length_squared() < 0.001:
+		ring_right = surface_normal.cross(Vector3.RIGHT)
+	ring_right = ring_right.normalized()
+	var ring_up := surface_normal.cross(ring_right).normalized()
+	ring.basis = Basis(ring_right, ring_up, surface_normal).orthonormalized()
+	effect.add_child(ring)
+	var ring_tween := effect.create_tween().set_parallel(true)
+	ring_tween.tween_property(ring, "scale", Vector3.ONE * 18.0 * burst_scale, 0.62).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	ring_tween.tween_property(ring.material_override, "albedo_color", Color(1.0, 0.38, 0.10, 0.0), 0.62)
+
+	var burst_light := OmniLight3D.new()
+	burst_light.light_color = Color(0.28, 0.78, 1.0)
+	burst_light.light_energy = 7.0 * burst_scale
+	burst_light.omni_range = 12.0 * burst_scale
+	burst_light.shadow_enabled = false
+	effect.add_child(burst_light)
+	effect.create_tween().tween_property(burst_light, "light_energy", 0.0, 0.46)
+
+	var spark_mesh := SphereMesh.new()
+	spark_mesh.radius = 0.035
+	spark_mesh.height = 0.07
+	spark_mesh.radial_segments = 8
+	spark_mesh.rings = 4
+	for spark_index in range(26):
+		var spark := MeshInstance3D.new()
+		spark.mesh = spark_mesh
+		var spark_color := Color(0.22, 0.88, 1.0, 1.0) if spark_index % 2 == 0 else Color(1.0, 0.42, 0.12, 1.0)
+		var spark_material := _make_fx_material(spark_color, 5.5)
+		spark.material_override = spark_material
+		spark.scale = Vector3.ONE * randf_range(0.65, 1.35)
+		effect.add_child(spark)
+		var spread := Vector3(randf_range(-1.0, 1.0), randf_range(-0.4, 1.2), randf_range(-1.0, 1.0))
+		var direction := (surface_normal + spread).normalized()
+		var travel := direction * randf_range(2.0, 8.0) * burst_scale
+		travel.y += randf_range(0.2, 1.5)
+		var lifetime := randf_range(0.42, 1.05)
+		var spark_tween := effect.create_tween().set_parallel(true)
+		spark_tween.tween_property(spark, "position", travel, lifetime).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		spark_tween.tween_property(spark, "scale", Vector3.ZERO, lifetime)
+		spark_tween.tween_property(spark_material, "albedo_color", Color(spark_color.r, spark_color.g, spark_color.b, 0.0), lifetime)
+	var cleanup_tween := effect.create_tween()
+	cleanup_tween.tween_interval(1.25)
+	cleanup_tween.tween_callback(effect.queue_free)
+
+
+func _hold_projectile_camera_at_impact(position: Vector3, incoming: Vector3) -> void:
+	if not projectile_camera_enabled:
+		return
+	followed_projectile = null
+	var forward := incoming.normalized() if incoming.length_squared() > 0.001 else Vector3.FORWARD
+	var stable_up := Vector3.UP if absf(forward.dot(Vector3.UP)) < 0.98 else Vector3.RIGHT
+	camera.global_position = position - forward * 16.0 + Vector3.UP * 8.0
+	camera.look_at(position + forward * 4.0, stable_up)
+	camera.fov = 72.0
+	if is_instance_valid(ground_visual):
+		ground_visual.global_position = Vector3(position.x, ground_home.y, position.z)
+
+
 func _on_projectile_body_entered(body: Node, projectile: RigidBody3D) -> void:
 	var shot_id := projectile.get_instance_id()
 	if not active_shots.has(shot_id):
@@ -1552,11 +1747,20 @@ func _on_projectile_body_entered(body: Node, projectile: RigidBody3D) -> void:
 	if body.is_in_group("range_targets"):
 		result = "TARGET HIT • %0.1f M • X %+0.1f M" % [-displacement.z, displacement.x]
 	status_label.text = "SHOT %02d  •  %s" % [shot.number, result]
+	var incoming := projectile.linear_velocity.normalized()
+	var impact_normal := Vector3.UP
+	if body.is_in_group("range_targets"):
+		impact_normal = -incoming
+	var impact_radius := float(shot.design.get("diameter", 0.18)) * 0.5
 	var impact_speed := projectile.linear_velocity.length()
-	analysis_label.text = "%s\nTIME %0.2f S  •  APEX %0.1f M\nIMPACT %0.0f M/S (MACH %0.2f)\nMASS %0.1f KG  •  Cd %0.2f" % [result, shot.time, shot.max_height, impact_speed, impact_speed / SEA_LEVEL_SOUND_SPEED, shot.design.mass, shot.design.cd]
+	var impact_position := projectile.global_position - impact_normal * impact_radius
+	_spawn_impact_splash(impact_position, impact_normal, shot.design, impact_speed)
+	var impact_atmosphere := _atmosphere_state(projectile.global_position.y)
+	var impact_mach := impact_speed / maxf(float(impact_atmosphere.sound_speed), 1.0)
+	analysis_label.text = "%s\nTIME %0.2f S  •  APEX %0.1f M\nIMPACT %0.0f M/S (MACH %0.2f)\nMASS %0.1f KG  •  Cd %0.2f" % [result, shot.time, shot.max_height, impact_speed, impact_mach, shot.design.mass, shot.design.cd]
 	active_shots.erase(shot_id)
 	if projectile == followed_projectile:
-		_toggle_projectile_camera()
+		_hold_projectile_camera_at_impact(impact_position, incoming)
 	if projectile == last_projectile:
 		last_projectile = null
 
