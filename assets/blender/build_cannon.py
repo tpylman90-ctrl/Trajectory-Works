@@ -307,6 +307,41 @@ def build():
         cylinder_between("Regulator cap", (x, 0.95, 0.57), (x, 1.06, 0.57), 0.09, fastener_metal)
         cylinder_between("Regulator indicator", (x, 1.06, 0.57), (x, 1.075, 0.57), 0.045, cyan, vertices=32)
 
+    # Make the elevation joint a visible, load-bearing assembly. The breech collar
+    # overlaps the receiver face, while paired clevis arms carry the barrel into
+    # journals that share the fixed base's exact trunnion axis at (Y=.94, Z=.30).
+    # Godot rotates ElevationPivot around this axis, so the joint remains seated
+    # throughout the full elevation range.
+    cylinder_between(
+        "Elevation pivot breech collar",
+        (0.0, 1.17, -0.62), (0.0, 1.17, -1.08), 0.49, blue_edge
+    )
+    torus(
+        "Elevation pivot collar seal",
+        (0.0, 1.17, -0.99), 0.50, 0.035, copper
+    )
+    for side in (-1, 1):
+        cylinder_between(
+            "Elevation pivot clevis arm",
+            (side * 0.56, 1.17, -0.70), (side * 0.78, 0.94, 0.30),
+            0.16, dark
+        )
+        cylinder_between(
+            "Elevation pivot journal",
+            (side * 0.78, 0.94, 0.30), (side * 1.21, 0.94, 0.30),
+            0.22, blue_edge
+        )
+        torus(
+            "Elevation pivot outer race",
+            (side * 1.18, 0.94, 0.30), 0.255, 0.035, copper,
+            rotation=(0.0, math.pi * 0.5, 0.0)
+        )
+        cylinder_between(
+            "Elevation pivot locking cap",
+            (side * 1.205, 0.94, 0.30), (side * 1.24, 0.94, 0.30),
+            0.13, fastener_metal
+        )
+
     # Pivot around the actual trunnion center, not the barrel throat. This keeps
     # the breech seated in the yoke as elevation changes in Godot.
     pivot = bpy.data.objects.new("ElevationPivot", None)
@@ -315,6 +350,7 @@ def build():
     pivot.empty_display_type = "CIRCLE"
     pivot.empty_display_size = 0.24
     pivot_parts = (
+        "Elevation pivot",
         "Main barrel | dark titanium liner",
         "Exposed copper induction winding",
         "Segmented emitter jacket",
