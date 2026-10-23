@@ -27,12 +27,25 @@ def material(name, color, metallic=0.0, roughness=0.45, emission=None):
 def finish(obj, mat, bevel=0.0):
     obj.data.materials.append(mat)
     if bevel and obj.type == "MESH":
-        mod = obj.modifiers.new("Machined edge highlights", "BEVEL")
+        mod = obj.modifiers.new("Soft machined radii", "BEVEL")
         mod.width = bevel
-        mod.segments = 3
+        mod.segments = 5
+        mod.harden_normals = True
         normal = obj.modifiers.new("Weighted corner normals", "WEIGHTED_NORMAL")
         normal.keep_sharp = True
     return obj
+
+
+def smooth_surface(obj):
+    if obj.type == "MESH":
+        for polygon in obj.data.polygons:
+            polygon.use_smooth = True
+    return obj
+
+
+def fastener(name, position, outward, radius, mat):
+    axis = Vector(outward).normalized()
+    return cylinder_between(name, position, Vector(position) + axis * 0.035, radius, mat, vertices=24)
 
 
 def cube(name, location, dimensions, mat, bevel=0.04):
@@ -44,7 +57,7 @@ def cube(name, location, dimensions, mat, bevel=0.04):
     return finish(obj, mat, bevel)
 
 
-def cylinder_between(name, start, end, radius, mat, vertices=32):
+def cylinder_between(name, start, end, radius, mat, vertices=64):
     a, b = Vector(start), Vector(end)
     direction = b - a
     bpy.ops.mesh.primitive_cylinder_add(
@@ -57,13 +70,14 @@ def cylinder_between(name, start, end, radius, mat, vertices=32):
     obj.name = name
     obj.rotation_mode = "QUATERNION"
     obj.rotation_quaternion = direction.to_track_quat("Z", "Y")
-    return finish(obj, mat, min(radius * 0.18, 0.025))
+    smooth_surface(obj)
+    return finish(obj, mat, min(radius * 0.12, 0.018))
 
 
 def torus(name, location, major, minor, mat):
     bpy.ops.mesh.primitive_torus_add(
-        major_segments=48,
-        minor_segments=12,
+        major_segments=64,
+        minor_segments=16,
         major_radius=major,
         minor_radius=minor,
         location=location,
@@ -71,6 +85,7 @@ def torus(name, location, major, minor, mat):
     )
     obj = bpy.context.object
     obj.name = name
+    smooth_surface(obj)
     return finish(obj, mat)
 
 
@@ -80,6 +95,10 @@ def build():
 
     blue = material("Enamel | deep range blue", (0.045, 0.16, 0.29), 0.55, 0.3)
     blue_edge = material("Machined | blue steel", (0.12, 0.28, 0.39), 0.78, 0.26)
+    ceramic = material("Armor | satin cobalt ceramic", (0.075, 0.235, 0.39), 0.36, 0.31)
+    graphite = material("Gaskets | charcoal elastomer", (0.018, 0.027, 0.034), 0.12, 0.58)
+    fastener_metal = material("Fasteners | brushed nickel", (0.48, 0.59, 0.62), 0.82, 0.27)
+    amber = material("Safety marks | signal amber", (0.95, 0.31, 0.055), 0.42, 0.3, (0.16, 0.035, 0.005))
     dark = material("Frame | graphite steel", (0.045, 0.065, 0.075), 0.82, 0.34)
     barrel = material("Barrel | brushed titanium", (0.34, 0.42, 0.47), 0.86, 0.23)
     copper = material("Coils | warm copper", (0.66, 0.24, 0.10), 0.78, 0.26)
@@ -95,10 +114,30 @@ def build():
         cube("Recoil rail", (x, 0.53, -0.55), (0.16, 0.3, 1.75), dark, 0.035)
         cube("Rail highlight", (x, 0.70, -0.55), (0.075, 0.055, 1.45), copper, 0.015)
 
-    cube("Armored pressure housing", (0.0, 0.93, 0.0), (2.05, 1.30, 1.75), blue, 0.18)
+    cube("Armored pressure housing", (0.0, 0.93, 0.0), (2.05, 1.30, 1.75), blue, 0.27)
+    # Sculpted shoulder armor softens the silhouette and breaks up the large blue mass.
+    for side in (-1, 1):
+        shoulder = cube("Floating shoulder armor", (side * 0.73, 1.40, -0.05), (0.62, 0.34, 1.42), ceramic, 0.14)
+        shoulder.rotation_euler[1] = side * math.radians(-7.0)
+        cube("Shoulder inset gasket", (side * 0.72, 1.575, -0.05), (0.38, 0.045, 0.91), graphite, 0.055)
+        cube("Shoulder service insert", (side * 0.72, 1.603, -0.05), (0.25, 0.018, 0.70), blue_edge, 0.025)
+    cube("Crown pressure cover", (0.0, 1.59, 0.18), (1.23, 0.22, 0.76), ceramic, 0.11)
+    cube("Top access hatch gasket", (0.0, 1.715, 0.20), (0.78, 0.035, 0.43), graphite, 0.04)
+    cube("Top access hatch", (0.0, 1.741, 0.20), (0.64, 0.025, 0.31), blue_edge, 0.035)
+    # Small amber index marks are restrained visual accents, not large graphic stripes.
+    for side in (-1, 1):
+        cube("Pressure limit index", (side * 0.91, 1.18, 0.57), (0.035, 0.10, 0.23), amber, 0.012)
     cube("Front housing bezel", (0.0, 0.98, -0.91), (1.64, 0.98, 0.20), blue_edge, 0.06)
     cube("Service panel", (0.0, 1.55, 0.38), (1.2, 0.055, 0.62), dark, 0.04)
     cube("Status display", (0.0, 1.56, 0.36), (0.82, 0.025, 0.34), cyan, 0.025)
+
+    # Fasteners and recessed seams give the armor readable scale and assembly logic.
+    for side in (-1, 1):
+        for y in (0.57, 1.28):
+            for z in (-0.60, 0.58):
+                fastener("Armor captive bolt", (side * 1.035, y, z), (side, 0, 0), 0.052, fastener_metal)
+        for z in (-0.61, 0.61):
+            cylinder_between("Shoulder armor pin", (side * 0.91, 1.41, z), (side * 0.94, 1.41, z), 0.045, fastener_metal, vertices=24)
 
     # Barrel, muzzle collar, and multiple copper induction rings.
     cylinder_between("Main barrel", (0.0, 1.17, -0.82), (0.0, 1.17, -6.75), 0.31, barrel)
@@ -121,6 +160,18 @@ def build():
         cylinder_between("Coil feed", (x, 0.55, 0.35), (side * 0.68, 1.05, -1.12), 0.06, copper)
         cube("Side armor lug", (side * 1.07, 0.92, -0.43), (0.20, 0.42, 0.65), blue_edge, 0.045)
 
+    # A layered muzzle assembly reads as a working pressure/field device.
+    cylinder_between("Muzzle shroud", (0.0, 1.17, -6.20), (0.0, 1.17, -6.92), 0.425, blue_edge)
+    torus("Muzzle seal | graphite", (0.0, 1.17, -6.22), 0.429, 0.035, graphite)
+    torus("Muzzle crown | titanium", (0.0, 1.17, -6.91), 0.433, 0.055, fastener_metal)
+    for index in range(8):
+        angle = index * math.tau / 8.0
+        fastener(
+            "Muzzle crown bolt",
+            (0.0 + math.cos(angle) * 0.38, 1.17 + math.sin(angle) * 0.38, -6.94),
+            (0, 0, -1), 0.028, fastener_metal
+        )
+
     # Structural barrel cradles, support feet, bolts, and a small gauge.
     for z in (-2.0, -4.8):
         cube("Barrel cradle crossbeam", (0.0, 0.55, z), (1.35, 0.20, 0.26), dark, 0.045)
@@ -129,6 +180,14 @@ def build():
     cylinder_between("Gauge stem", (0.68, 1.30, 0.48), (0.80, 1.55, 0.48), 0.045, tube)
     cylinder_between("Pressure gauge body", (0.80, 1.55, 0.48), (0.80, 1.73, 0.48), 0.17, dark)
     cylinder_between("Gauge face", (0.80, 1.73, 0.48), (0.80, 1.76, 0.48), 0.12, tube)
+
+    # A visible regulator cluster connects the accumulators to the firing chamber.
+    for side in (-1, 1):
+        x = side * 0.57
+        cylinder_between("Regulator body", (x, 0.50, 0.57), (x, 0.95, 0.57), 0.14, dark)
+        torus("Regulator brass seat", (x, 0.92, 0.57), 0.145, 0.025, copper)
+        cylinder_between("Regulator cap", (x, 0.95, 0.57), (x, 1.06, 0.57), 0.09, fastener_metal)
+        cylinder_between("Regulator indicator", (x, 1.06, 0.57), (x, 1.075, 0.57), 0.045, cyan, vertices=32)
 
     # Make the GLB convenient to place on a range deck in Godot.
     bpy.ops.object.select_all(action="SELECT")
