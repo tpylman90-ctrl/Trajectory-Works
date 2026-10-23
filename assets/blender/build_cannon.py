@@ -335,6 +335,18 @@ def build():
         obj.parent = pivot
         obj.matrix_world = world_matrix
 
+    # Keep the fixed base in its own transform group. Godot needs the barrel
+    # axis correction for the emitter, while the skid and pressure housing stay upright.
+    base_assembly = bpy.data.objects.new("CannonBaseAssembly", None)
+    bpy.context.collection.objects.link(base_assembly)
+    base_assembly.location = (0.0, 0.0, 0.0)
+    for obj in list(bpy.context.scene.objects):
+        if obj is base_assembly or obj is pivot or obj.parent is not None:
+            continue
+        world_matrix = obj.matrix_world.copy()
+        obj.parent = base_assembly
+        obj.matrix_world = world_matrix
+
     # Make the GLB convenient to place on a range deck in Godot.
     bpy.ops.object.select_all(action="SELECT")
     bpy.context.view_layer.objects.active = bpy.context.selected_objects[0]
