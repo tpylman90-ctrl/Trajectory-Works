@@ -213,48 +213,35 @@ def build():
         for z in (-0.61, 0.61):
             cylinder_between("Shoulder armor pin", (side * 0.91, 1.41, z), (side * 0.94, 1.41, z), 0.045, fastener_metal, vertices=24)
 
-    # Wide faceted armor housing turns the thin tube into a heavy sci-fi pressure cannon.
-    cylinder_between("Main barrel", (0.0, 1.17, -0.82), (0.0, 1.17, -6.75), 0.31, barrel)
-    bpy.ops.mesh.primitive_cone_add(
-        vertices=10,
-        radius1=0.46,
-        radius2=0.64,
-        depth=4.18,
-        location=(0.0, 1.17, -4.16),
-    )
-    shroud = bpy.context.object
-    shroud.name = "Tapered faceted barrel armor"
-    finish(shroud, ceramic, 0.045)
-    for side in (-1, 1):
-        channel = cube(
-            "Inset power channel | graphite",
-            (side * 0.53, 1.17, -4.15),
-            (0.055, 0.14, 3.40), graphite, 0.022
+    # Exposed emitter assembly: segmented titanium jackets, visible induction coils, and a clean bore.
+    cylinder_between("Main barrel | dark titanium liner", (0.0, 1.17, -0.82), (0.0, 1.17, -6.75), 0.30, dark)
+    for index in range(9):
+        z = -1.02 - index * 0.125
+        torus("Exposed copper induction winding %02d" % (index + 1), (0.0, 1.17, z), 0.365, 0.052, copper)
+    # Four separate jacket modules leave dark expansion gaps so the emitter reads
+    # as engineered machinery instead of one oversized sleeve.
+    for index, z in enumerate((-2.52, -3.56, -4.60, -5.64)):
+        jacket_material = barrel if index % 2 == 0 else blue_edge
+        cylinder_between(
+            "Segmented emitter jacket %02d" % (index + 1),
+            (0.0, 1.17, z - 0.37),
+            (0.0, 1.17, z + 0.37),
+            0.405 if index < 3 else 0.39,
+            jacket_material,
         )
-        channel.rotation_euler[1] = side * math.atan(0.10 / 3.40)
-        cube(
-            "Channel status rail | cyan",
-            (side * 0.557, 1.17, -3.06),
-            (0.018, 0.035, 0.72), cyan, 0.009
-        )
-        # Short machined clamps tie the armor shell into the muzzle jacket.
-        cube(
-            "Shroud clamp lug",
-            (side * 0.53, 1.17, -5.85),
-            (0.10, 0.22, 0.25), blue_edge, 0.035
-        )
-    # Distinct metallic bands articulate the two ends of the tapered shell.
-    torus("Shroud breech collar", (0.0, 1.17, -2.15), 0.625, 0.045, dark)
-    torus("Shroud muzzle collar", (0.0, 1.17, -6.14), 0.475, 0.04, fastener_metal)
-    # Exposed copper induction stack remains visible behind the armored forward section.
-    for index in range(7):
-        z = -1.02 - index * 0.145
-        torus("Copper induction coil %02d" % (index + 1), (0.0, 1.17, z), 0.375, 0.052, copper)
-    torus("Muzzle restraint | rear", (0.0, 1.17, -6.22), 0.47, 0.055, dark)
-    torus("Muzzle crown | titanium", (0.0, 1.17, -6.89), 0.47, 0.075, fastener_metal)
-    torus("Muzzle field indicator", (0.0, 1.17, -6.96), 0.355, 0.035, cyan)
-
-    # Twin pressure accumulators and protective saddles.
+        for edge in (-1, 1):
+            collar_z = z + edge * 0.37
+            torus("Emitter jacket locking collar", (0.0, 1.17, collar_z), 0.414 if index < 3 else 0.40, 0.028, dark)
+            torus("Collar index | amber", (0.0, 1.17, collar_z + edge * 0.045), 0.416 if index < 3 else 0.402, 0.012, amber)
+    # Longitudinal bus rails bridge the modules and expose the cannon's power path.
+    for index in range(6):
+        angle = math.tau * index / 6.0
+        x = math.cos(angle) * 0.398
+        y = 1.17 + math.sin(angle) * 0.398
+        cylinder_between("Emitter bus rail", (x, y, -2.02), (x, y, -6.05), 0.027, fastener_metal, vertices=24)
+        for z in (-2.16, -3.20, -4.24, -5.28, -6.02):
+            fastener("Bus rail clamp", (x, y, z), (math.cos(angle), math.sin(angle), 0.0), 0.022, copper)
+# Twin pressure accumulators and protective saddles.
     for side in (-1, 1):
         x = side * 1.04
         cylinder_between("Pressure accumulator", (x, 0.42, 0.18), (x, 1.30, 0.18), 0.27, blue_edge)
@@ -278,7 +265,7 @@ def build():
             (0, 0, -1), 0.028, fastener_metal
         )
 
-    # The shroud is cantilevered cleanly from the receiver; its bands carry the load visually.
+    # The segmented emitter jackets are supported by the continuous titanium liner.
     # Detached mid-barrel posts were removed so the underside silhouette stays intentional.
     cylinder_between("Gauge stem", (0.68, 1.30, 0.48), (0.80, 1.55, 0.48), 0.045, tube)
     cylinder_between("Pressure gauge body", (0.80, 1.55, 0.48), (0.80, 1.73, 0.48), 0.17, dark)
