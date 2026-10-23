@@ -189,6 +189,9 @@ func _build_cannon() -> void:
 				push_warning("Cannon base transform group is missing from the imported model.")
 			barrel_pivot = imported.find_child("ElevationPivot", true, false) as Node3D
 			if is_instance_valid(barrel_pivot):
+				# Re-seat the emitter pivot on the base's restored trunnion center.
+				if is_instance_valid(base_assembly):
+					barrel_pivot.global_position = base_assembly.to_global(Vector3(0.0, 0.94, 0.30))
 				barrel_pivot_base_rotation = barrel_pivot.rotation
 				barrel_pivot.set_meta("muzzle_offset", -7.24)
 			var mesh_points: Array[Vector3] = []
