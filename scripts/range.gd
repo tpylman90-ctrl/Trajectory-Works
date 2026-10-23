@@ -24,6 +24,10 @@ var target_distance_picker: OptionButton
 var target_distance_label: Label
 var active_target: Node3D
 var target_distance_m := 2000
+var projectile_camera_button: Button
+var projectile_camera_enabled := false
+var followed_projectile: RigidBody3D
+var last_projectile: RigidBody3D
 var speed_value_label: Label
 var elevation_value_label: Label
 var wind_value_label: Label
@@ -337,7 +341,7 @@ func _build_hud() -> void:
 	status_label.add_theme_color_override("font_color", Color(0.55, 0.88, 0.95))
 	stack.add_child(status_label)
 	var hint := Label.new()
-	hint.text = "2 KM COURSE  •  Drag to orbit; tune the shot below"
+	hint.text = "2 KM COURSE  •  Tune the shot; tap PROJECTILE CAM to ride it"
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	hint.add_theme_color_override("font_color", Color(0.75, 0.86, 0.90))
 	stack.add_child(hint)
@@ -412,9 +416,50 @@ func _build_hud() -> void:
 	fire.add_theme_color_override("font_color", Color(0.55, 0.94, 1.0))
 	fire.pressed.connect(_fire_test_shot)
 	layer.add_child(fire)
+	projectile_camera_button = Button.new()
+	projectile_camera_button.text = "PROJECTILE CAM  •  OFF"
+	projectile_camera_button.custom_minimum_size = Vector2(220.0, 54.0)
+	projectile_camera_button.anchor_left = 1.0
+	projectile_camera_button.anchor_top = 1.0
+	projectile_camera_button.anchor_right = 1.0
+	projectile_camera_button.anchor_bottom = 1.0
+	projectile_camera_button.offset_left = -246.0
+	projectile_camera_button.offset_top = -162.0
+	projectile_camera_button.offset_right = -26.0
+	projectile_camera_button.offset_bottom = -108.0
+	projectile_camera_button.add_theme_font_size_override("font_size", 18)
+	projectile_camera_button.add_theme_stylebox_override("normal", button_normal)
+	projectile_camera_button.add_theme_stylebox_override("hover", button_hover)
+	projectile_camera_button.add_theme_color_override("font_color", Color(0.55, 0.94, 1.0))
+	projectile_camera_button.pressed.connect(_toggle_projectile_camera)
+	layer.add_child(projectile_camera_button)
 	_on_speed_changed(speed_slider.value)
 	_on_elevation_changed(elevation_slider.value)
 	_on_wind_changed(wind_slider.value)
+
+
+func _toggle_projectile_camera() -> void:
+	projectile_camera_enabled = not projectile_camera_enabled
+	if projectile_camera_enabled:
+		followed_projectile = last_projectile if is_instance_valid(last_projectile) else null
+		if is_instance_valid(followed_projectile):
+			_update_projectile_camera(followed_projectile)
+	else:
+		followed_projectile = null
+		_update_camera()
+	if is_instance_valid(projectile_camera_button):
+		projectile_camera_button.text = "PROJECTILE CAM  •  ON" if projectile_camera_enabled else "PROJECTILE CAM  •  OFF"
+
+
+func _update_projectile_camera(projectile: RigidBody3D) -> void:
+	if not is_instance_valid(projectile):
+		return
+	var velocity := projectile.linear_velocity
+	var forward := velocity.normalized() if velocity.length_squared() > 1.0 else -projectile.global_transform.basis.z.normalized()
+	var camera_up := Vector3.FORWARD if absf(forward.dot(Vector3.UP)) > 0.96 else Vector3.UP
+	camera.fov = 62.0
+	camera.global_position = projectile.global_position - forward * 1.8 + Vector3.UP * 0.58
+	camera.look_at(projectile.global_position + forward * 35.0, camera_up)
 
 
 func _on_target_distance_selected(index: int) -> void:
@@ -467,6 +512,7 @@ func _orbit_camera(relative: Vector2) -> void:
 
 
 func _update_camera() -> void:
+	camera.fov = 43.0
 	var horizontal := camera_distance * cos(camera_pitch)
 	camera.position = camera_focus + Vector3(sin(camera_yaw) * horizontal, sin(camera_pitch) * camera_distance, cos(camera_yaw) * horizontal)
 	camera.look_at(camera_focus, Vector3.UP)
@@ -543,6 +589,9 @@ func _fire_test_shot() -> void:
 		projectile.global_position = barrel_pivot.to_global(Vector3(0.0, 0.0, muzzle_offset))
 		muzzle_forward = -barrel_pivot.global_transform.basis.z.normalized()
 	projectile.linear_velocity = muzzle_forward * speed_slider.value
+	last_projectile = projectile
+	if projectile_camera_enabled:
+		followed_projectile = projectile
 	projectile.set_meta("design", design)
 	projectile.set_meta("wind_x", wind_slider.value)
 	active_shots[projectile.get_instance_id()] = {"body": projectile, "number": shot_count, "time": 0.0, "max_height": projectile.global_position.y, "origin": projectile.global_position, "design": design}
@@ -586,6 +635,8 @@ func _physics_process(delta: float) -> void:
 			projectile.apply_central_force(-relative_air_velocity.normalized() * drag)
 			if velocity.length() > 1.0:
 				projectile.look_at(projectile.global_position + velocity.normalized(), Vector3.UP)
+		if projectile == followed_projectile:
+			_update_projectile_camera(projectile)
 		shot.time = float(shot.time) + delta
 		shot.max_height = maxf(float(shot.max_height), projectile.global_position.y)
 		active_shots[shot_id] = shot
@@ -604,6 +655,8 @@ func _on_projectile_body_entered(body: Node, projectile: RigidBody3D) -> void:
 	var impact_speed := projectile.linear_velocity.length()
 	analysis_label.text = "%s\nTIME %.2F S  •  APEX %.1F M\nIMPACT %.0F M/S (MACH %.2F)\nMASS %.1F KG  •  Cd %.2F" % [result, shot.time, shot.max_height, impact_speed, impact_speed / SEA_LEVEL_SOUND_SPEED, shot.design.mass, shot.design.cd]
 	active_shots.erase(shot_id)
+	if projectile == followed_projectile:
+		_toggle_projectile_camera()
 
 
 func _remove_projectile(projectile: RigidBody3D) -> void:
