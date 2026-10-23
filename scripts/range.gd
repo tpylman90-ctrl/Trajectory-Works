@@ -657,10 +657,16 @@ func _on_projectile_body_entered(body: Node, projectile: RigidBody3D) -> void:
 	active_shots.erase(shot_id)
 	if projectile == followed_projectile:
 		_toggle_projectile_camera()
+	if projectile == last_projectile:
+		last_projectile = null
 
 
 func _remove_projectile(projectile: RigidBody3D) -> void:
 	if is_instance_valid(projectile):
+		if projectile == followed_projectile:
+			_toggle_projectile_camera()
+		if projectile == last_projectile:
+			last_projectile = null
 		active_shots.erase(projectile.get_instance_id())
 		projectile.queue_free()
 
