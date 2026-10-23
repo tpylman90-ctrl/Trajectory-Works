@@ -1626,7 +1626,7 @@ func _physics_process(_delta: float) -> void:
 					ground_render_size = desired_ground_size
 					ground_mesh.size = Vector2(ground_render_size, ground_render_size)
 			_update_projectile_camera(projectile)
-		shot.time = float(shot.time) + delta
+		shot.time = float(shot.time) + _delta
 		shot.max_height = maxf(float(shot.max_height), projectile.global_position.y)
 		if shot.time >= MAX_SHOT_FLIGHT_TIME or projectile.global_position.distance_squared_to(shot.origin) >= MAX_SHOT_TRAVEL * MAX_SHOT_TRAVEL:
 			_remove_projectile(projectile)
