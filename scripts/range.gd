@@ -3,6 +3,8 @@ extends Node3D
 const RANGE_LENGTH := 2000.0
 const AIR_DENSITY := 1.225
 const SEA_LEVEL_SOUND_SPEED := 343.0
+const MAX_SHOT_FLIGHT_TIME := 900.0
+const MAX_SHOT_TRAVEL := 2500000.0
 const PROJECTILE_TYPES := [
 	{"name": "Dense slug", "mass": 42.0, "diameter": 0.18, "cd": 0.24, "shape": "slug", "length": 0.54, "color": Color(0.67, 0.78, 0.83)},
 	{"name": "Training sphere", "mass": 24.0, "diameter": 0.20, "cd": 0.47, "shape": "sphere", "length": 0.20, "color": Color(0.86, 0.90, 0.88)},
@@ -36,6 +38,8 @@ var camera_dragging := false
 var active_shots: Dictionary = {}
 var barrel_pivot: Node3D
 var ground_visual: MeshInstance3D
+var ground_mesh: PlaneMesh
+var ground_render_size := 100000.0
 var ground_home := Vector3(0.0, -0.12, 0.0)
 
 
@@ -143,7 +147,7 @@ void sky() {
 
 	ground_visual = MeshInstance3D.new()
 	ground_visual.name = "Projectile-following render ground"
-	var ground_mesh := PlaneMesh.new()
+	ground_mesh = PlaneMesh.new()
 	# One large shader-driven tile follows the projectile so the horizon never exposes a board edge.
 	ground_mesh.size = Vector2(100000.0, 100000.0)
 	ground_visual.mesh = ground_mesh
@@ -155,7 +159,7 @@ void sky() {
 	ground_body.position = Vector3(0.0, -0.12, 0.0)
 	var ground_collision := CollisionShape3D.new()
 	var ground_shape := BoxShape3D.new()
-	ground_shape.size = Vector3(100000.0, 0.2, 100000.0)
+	ground_shape.size = Vector3(5000000.0, 0.2, 5000000.0)
 	ground_collision.shape = ground_shape
 	ground_body.add_child(ground_collision)
 	add_child(ground_body)
@@ -169,6 +173,10 @@ func _build_cannon() -> void:
 		var packed := load(glb_path) as PackedScene
 		if packed != null:
 			var imported := packed.instantiate() as Node3D
+			# The Blender GLB arrives with its long axis on local Y; rotate it onto Godot's -Z firing axis.
+			imported.rotation.x = -PI * 0.5
+			# Compress only the imported vertical axis to keep the armored receiver at believable scale.
+			imported.scale.z = 0.5
 			imported.position.y = 0.385
 			add_child(imported)
 			barrel_pivot = imported.find_child("ElevationPivot", true, false) as Node3D
@@ -180,7 +188,11 @@ func _build_cannon() -> void:
 				var bounds := AABB(mesh_points[0], Vector3.ZERO)
 				for point in mesh_points:
 					bounds = bounds.expand(point)
-				var looks_like_cannon := bounds.size.y > 0.8 and bounds.size.y < 3.2 and bounds.size.z > 6.0 and bounds.position.z < -5.5 and bounds.end.z > 1.0 and bounds.position.y > -0.8 and bounds.end.y < 3.5
+				# Rest the generated skid on the launch deck after its axis correction.
+				var ground_lift := 0.385 - bounds.position.y
+				imported.position.y += ground_lift
+				bounds.position += Vector3(0.0, ground_lift, 0.0)
+				var looks_like_cannon := bounds.size.x > 1.5 and bounds.size.x < 4.0 and bounds.size.y > 0.9 and bounds.size.y < 3.2 and bounds.size.z > 6.0 and bounds.size.z < 10.0 and bounds.position.z < -5.5
 				if looks_like_cannon:
 					print("Using Blender cannon; imported bounds: ", bounds)
 					return
@@ -616,6 +628,8 @@ func _update_projectile_camera(projectile: RigidBody3D) -> void:
 	# Keep the chase view attached to the shot without pitching straight into empty sky.
 	# A slight downward bias preserves the course and horizon while the projectile remains in frame.
 	var view_forward := Vector3(forward.x, clampf(forward.y * 0.34 - 0.08, -0.35, 0.18), forward.z).normalized()
+	var altitude := maxf(projectile.global_position.y, 0.0)
+	camera.far = clampf(110000.0 + altitude * 24.0, 110000.0, 15000000.0)
 	camera.fov = 72.0
 	camera.global_position = projectile.global_position - forward * 1.8 + Vector3.UP * 0.58
 	camera.look_at(projectile.global_position + view_forward * 35.0, Vector3.UP)
@@ -633,21 +647,21 @@ func _on_target_distance_selected(index: int) -> void:
 
 func _on_speed_changed(value: float) -> void:
 	if is_instance_valid(speed_value_label):
-		speed_value_label.text = "MUZZLE VELOCITY  •  %.0F M/S  (MACH %.1F)" % [value, value / SEA_LEVEL_SOUND_SPEED]
+		speed_value_label.text = "MUZZLE VELOCITY  •  %0.0f M/S  (MACH %0.1f)" % [value, value / SEA_LEVEL_SOUND_SPEED]
 
 
 func _on_elevation_changed(value: float) -> void:
 	if is_instance_valid(elevation_value_label):
-		elevation_value_label.text = "BARREL ELEVATION  •  %+.1F°" % value
+		elevation_value_label.text = "BARREL ELEVATION  •  %+0.1f°" % value
 	if is_instance_valid(barrel_pivot):
 		barrel_pivot.rotation.x = deg_to_rad(value)
 
 
 func _on_wind_changed(value: float) -> void:
 	if is_instance_valid(wind_value_label):
-		wind_value_label.text = "CROSSWIND  •  %+.1F M/S" % value
+		wind_value_label.text = "CROSSWIND  •  %+0.1f M/S" % value
 	if is_instance_valid(status_label):
-		status_label.text = "HYPERVELOCITY RANGE  •  CROSSWIND: %+.1F M/S" % value
+		status_label.text = "HYPERVELOCITY RANGE  •  CROSSWIND: %+0.1f M/S" % value
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -754,8 +768,8 @@ func _fire_test_shot() -> void:
 	projectile.set_meta("design", design)
 	projectile.set_meta("wind_x", wind_slider.value)
 	active_shots[projectile.get_instance_id()] = {"body": projectile, "number": shot_count, "time": 0.0, "max_height": projectile.global_position.y, "origin": projectile.global_position, "design": design}
-	analysis_label.text = "IN FLIGHT  •  %.1F KG / %.0F MM / Cd %.2F" % [design.mass, design.diameter * 1000.0, design.cd]
-	get_tree().create_timer(20.0).timeout.connect(func(): _remove_projectile(projectile))
+	analysis_label.text = "IN FLIGHT  •  %0.1f KG / %0.0f MM / Cd %0.2f" % [design.mass, design.diameter * 1000.0, design.cd]
+	# Shots remain active until impact; the long failsafe only cleans up runaway bodies.
 
 
 func _physics_process(delta: float) -> void:
@@ -797,9 +811,16 @@ func _physics_process(delta: float) -> void:
 		if projectile == followed_projectile:
 			if is_instance_valid(ground_visual):
 				ground_visual.global_position = Vector3(projectile.global_position.x, ground_home.y, projectile.global_position.z)
+				var desired_ground_size := clampf(maxf(100000.0, projectile.global_position.y * 24.0), 100000.0, 12000000.0)
+				if absf(desired_ground_size - ground_render_size) > ground_render_size * 0.08:
+					ground_render_size = desired_ground_size
+					ground_mesh.size = Vector2(ground_render_size, ground_render_size)
 			_update_projectile_camera(projectile)
 		shot.time = float(shot.time) + delta
 		shot.max_height = maxf(float(shot.max_height), projectile.global_position.y)
+		if shot.time >= MAX_SHOT_FLIGHT_TIME or projectile.global_position.distance_squared_to(shot.origin) >= MAX_SHOT_TRAVEL * MAX_SHOT_TRAVEL:
+			_remove_projectile(projectile)
+			continue
 		active_shots[shot_id] = shot
 
 
@@ -809,12 +830,12 @@ func _on_projectile_body_entered(body: Node, projectile: RigidBody3D) -> void:
 		return
 	var shot: Dictionary = active_shots[shot_id]
 	var displacement: Vector3 = projectile.global_position - shot.origin
-	var result := "IMPACT • %.1F M • X %+.1F M" % [-displacement.z, displacement.x]
+	var result := "IMPACT • %0.1f M • X %+0.1f M" % [-displacement.z, displacement.x]
 	if body.is_in_group("range_targets"):
-		result = "TARGET HIT • %.1F M • X %+.1F M" % [-displacement.z, displacement.x]
+		result = "TARGET HIT • %0.1f M • X %+0.1f M" % [-displacement.z, displacement.x]
 	status_label.text = "SHOT %02d  •  %s" % [shot.number, result]
 	var impact_speed := projectile.linear_velocity.length()
-	analysis_label.text = "%s\nTIME %.2F S  •  APEX %.1F M\nIMPACT %.0F M/S (MACH %.2F)\nMASS %.1F KG  •  Cd %.2F" % [result, shot.time, shot.max_height, impact_speed, impact_speed / SEA_LEVEL_SOUND_SPEED, shot.design.mass, shot.design.cd]
+	analysis_label.text = "%s\nTIME %0.2f S  •  APEX %0.1f M\nIMPACT %0.0f M/S (MACH %0.2f)\nMASS %0.1f KG  •  Cd %0.2f" % [result, shot.time, shot.max_height, impact_speed, impact_speed / SEA_LEVEL_SOUND_SPEED, shot.design.mass, shot.design.cd]
 	active_shots.erase(shot_id)
 	if projectile == followed_projectile:
 		_toggle_projectile_camera()
