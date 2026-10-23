@@ -89,12 +89,12 @@ jobs:
           set -o pipefail
           godot --version
           godot --headless --path . --editor --import 2>&1 | tee /tmp/godot-import.log
-          if grep -E 'SCRIPT ERROR:|Failed to load script|Parse Error:' /tmp/godot-import.log; then
+          if grep -E 'SCRIPT ERROR:|Failed to load script|Parse Error:|ERROR: String formatting error|WARNING: Blender cannon orientation/scale is invalid' /tmp/godot-import.log; then
             echo "Godot import reported script errors."
             exit 1
           fi
           godot --headless --path . --quit-after 2 2>&1 | tee /tmp/godot-runtime.log
-          if grep -E 'SCRIPT ERROR:|Failed to load script|Parse Error:' /tmp/godot-runtime.log; then
+          if grep -E 'SCRIPT ERROR:|Failed to load script|Parse Error:|ERROR: String formatting error|WARNING: Blender cannon orientation/scale is invalid' /tmp/godot-runtime.log; then
             echo "Godot startup reported script errors."
             exit 1
           fi
