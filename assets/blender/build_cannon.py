@@ -3,7 +3,7 @@
 from pathlib import Path
 import math
 import bpy
-from mathutils import Vector
+from mathutils import Matrix, Vector
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -86,7 +86,9 @@ def build():
     tube = material("Pneumatic lines | pale alloy", (0.53, 0.67, 0.68), 0.76, 0.22)
     cyan = material("Field indicator | cyan", (0.12, 0.72, 0.90), 0.3, 0.2, (0.08, 0.65, 1.0))
 
-    # The cannon points toward negative Y; the GLB origin sits at the mount.
+    # The meshes are authored in Godot's Y-up / -Z-forward coordinates.
+    # Pre-compensate the Blender glTF exporter's Z-up to Y-up axis rotation so
+    # those coordinates arrive unchanged when Godot imports the GLB.
     cube("Foundation | chamfered skid", (0.0, 0.05, 0.0), (2.8, 0.32, 3.6), dark, 0.12)
     cube("Upper cradle", (0.0, 0.30, -0.12), (2.25, 0.32, 2.25), blue_edge, 0.08)
     for x in (-0.82, 0.82):
@@ -131,6 +133,9 @@ def build():
     # Make the GLB convenient to place on a range deck in Godot.
     bpy.ops.object.select_all(action="SELECT")
     bpy.context.view_layer.objects.active = bpy.context.selected_objects[0]
+    cancel_glb_axis_conversion = Matrix.Rotation(math.radians(-90.0), 4, "X")
+    for obj in bpy.context.selected_objects:
+        obj.matrix_world = cancel_glb_axis_conversion @ obj.matrix_world
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     bpy.ops.export_scene.gltf(
         filepath=str(OUTPUT),
