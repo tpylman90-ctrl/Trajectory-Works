@@ -253,6 +253,26 @@ def build():
     add_target_service_frames(mats)
     add_equipment_crates(mats)
 
+    # Apply bevels, then merge each material family to keep mobile draw calls low.
+    for obj in list(bpy.data.objects):
+        if obj.type == "MESH":
+            bpy.ops.object.select_all(action="DESELECT")
+            obj.select_set(True)
+            bpy.context.view_layer.objects.active = obj
+            bpy.ops.object.convert(target="MESH")
+    for mat in mats:
+        family = [
+            obj for obj in bpy.data.objects
+            if obj.type == "MESH" and mat in obj.data.materials[:]
+        ]
+        if len(family) > 1:
+            bpy.ops.object.select_all(action="DESELECT")
+            for obj in family:
+                obj.select_set(True)
+            bpy.context.view_layer.objects.active = family[0]
+            bpy.ops.object.join()
+            family[0].name = "Range geometry | " + mat.name
+
     # Correct the Blender Z-up authoring transform for Godot's Y-up / -Z-forward world.
     bpy.ops.object.select_all(action="SELECT")
     bpy.context.view_layer.objects.active = bpy.context.selected_objects[0]
