@@ -956,9 +956,6 @@ func _build_round_preview_scene() -> void:
 	preview_camera.look_at(Vector3.ZERO, Vector3.UP)
 
 
-func _process(delta: float) -> void:
-	if is_instance_valid(round_preview_spin) and is_instance_valid(round_editor_screen) and round_mode != "orbit":
-		round_preview_spin.rotation.y += delta * 0.08
 
 
 func _on_round_design_changed(_value: float) -> void:
@@ -1008,7 +1005,7 @@ func _set_round_sculpt_mode(mode: String) -> void:
 			"bend":
 				round_sculpt_hint.text = "DRAG to move the selected station sideways or vertically; neighbors blend smoothly."
 			"twist":
-				round_sculpt_hint.text = "DRAG HORIZONTALLY to spiral the round's subtle helical flutes."
+				round_sculpt_hint.text = "DRAG HORIZONTALLY to twist the round's deep helical grooves."
 			_:
 				round_sculpt_hint.text = "DRAG to orbit the model. Choose PULL, BEND or TWIST to sculpt."
 	if is_instance_valid(round_preview_container):
@@ -1060,7 +1057,7 @@ func _apply_round_drag(relative: Vector2) -> void:
 			station["bend_x"] = clampf(float(station.get("bend_x", 0.0)) + relative.x * 0.0012, -0.24, 0.24)
 			station["bend_y"] = clampf(float(station.get("bend_y", 0.0)) - relative.y * 0.0012, -0.24, 0.24)
 		"twist":
-			station["twist"] = clampf(float(station.get("twist", 0.0)) + relative.x * 0.012, -PI, PI)
+			station["twist"] = clampf(float(station.get("twist", 0.0)) + relative.x * 0.018, -PI, PI)
 	stations[index] = station
 	current_projectile["stations"] = stations
 	_on_round_station_changed(float(index))
@@ -1093,7 +1090,7 @@ func _round_ring_point(radius: float, z: float, angle: float, design: Dictionary
 	var body_radius := float(design.diameter) * 0.5
 	var nose_start := -float(design.length) * 0.5 + float(design.get("tip_length", 0.0))
 	var flute_fade := smoothstep(nose_start, nose_start + body_radius * 0.9, z) * (1.0 - smoothstep(float(design.length) * 0.5 - body_radius * 0.6, float(design.length) * 0.5, z))
-	var flute := 1.0 + 0.07 * flute_fade * cos(6.0 * (angle - twist))
+	var flute := 1.0 + 0.14 * flute_fade * cos(6.0 * (angle - twist))
 	var scaled_radius := radius * float(station.get("pull", 1.0)) * flute
 	return Vector3(
 		float(station.get("bend_x", 0.0)) + scaled_radius * cos(angle),
