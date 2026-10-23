@@ -19,6 +19,20 @@ var camera_distance := 34.0
 var status_label: Label
 var analysis_label: Label
 var projectile_picker: OptionButton
+var current_projectile: Dictionary = {}
+var custom_round_active := false
+var round_editor_screen: Control
+var round_preview_spin: Node3D
+var round_preview_model: MeshInstance3D
+var round_preview_view: SubViewport
+var round_nose_picker: OptionButton
+var round_material_picker: OptionButton
+var round_diameter_slider: HSlider
+var round_length_slider: HSlider
+var round_dimensions_label: Label
+var round_mass_label: Label
+var round_volume_label: Label
+var round_material_label: Label
 var speed_slider: HSlider
 var elevation_slider: HSlider
 var wind_slider: HSlider
@@ -43,6 +57,14 @@ var ground_mesh: PlaneMesh
 var ground_render_size := 100000.0
 var ground_home := Vector3(0.0, -0.12, 0.0)
 
+const ROUND_NOSES := ["Ogive", "Conical", "Round", "Flat"]
+const ROUND_MATERIALS := [
+	{"name": "Aluminum alloy", "density": 2700.0, "color": Color(0.58, 0.69, 0.73)},
+	{"name": "Steel", "density": 7850.0, "color": Color(0.40, 0.51, 0.58)},
+	{"name": "Copper alloy", "density": 8960.0, "color": Color(0.72, 0.32, 0.15)},
+	{"name": "Tungsten alloy", "density": 18000.0, "color": Color(0.25, 0.31, 0.37)},
+]
+
 
 func _ready() -> void:
 	Engine.physics_ticks_per_second = 120
@@ -52,6 +74,7 @@ func _ready() -> void:
 	_build_range()
 	_build_range_details()
 	_build_range_assets()
+	current_projectile = PROJECTILE_TYPES[0].duplicate(true)
 	_build_hud()
 	set_physics_process(true)
 
@@ -517,6 +540,8 @@ func _build_hud() -> void:
 	projectile_picker.add_theme_color_override("font_color", Color(0.83, 0.92, 0.95))
 	for projectile_data in PROJECTILE_TYPES:
 		projectile_picker.add_item(str(projectile_data.name))
+	projectile_picker.add_item("Custom round")
+	projectile_picker.item_selected.connect(_on_projectile_preset_selected)
 	stack.add_child(projectile_picker)
 	target_distance_label = Label.new()
 	stack.add_child(target_distance_label)
@@ -606,10 +631,463 @@ func _build_hud() -> void:
 	projectile_camera_button.add_theme_color_override("font_color", Color(0.55, 0.94, 1.0))
 	projectile_camera_button.pressed.connect(_toggle_projectile_camera)
 	layer.add_child(projectile_camera_button)
+	var edit_round_button := Button.new()
+	edit_round_button.text = "EDIT ROUND"
+	edit_round_button.custom_minimum_size = Vector2(220.0, 44.0)
+	edit_round_button.anchor_left = 1.0
+	edit_round_button.anchor_top = 1.0
+	edit_round_button.anchor_right = 1.0
+	edit_round_button.anchor_bottom = 1.0
+	edit_round_button.offset_left = -246.0
+	edit_round_button.offset_top = -216.0
+	edit_round_button.offset_right = -26.0
+	edit_round_button.offset_bottom = -170.0
+	edit_round_button.add_theme_font_size_override("font_size", 18)
+	edit_round_button.add_theme_stylebox_override("normal", button_normal)
+	edit_round_button.add_theme_stylebox_override("hover", button_hover)
+	edit_round_button.add_theme_color_override("font_color", Color(0.55, 0.94, 1.0))
+	edit_round_button.pressed.connect(_open_round_editor)
+	layer.add_child(edit_round_button)
 	_on_speed_changed(speed_slider.value)
 	_on_elevation_changed(elevation_slider.value)
 	_on_wind_changed(wind_slider.value)
 	_add_hud_corner_marks(layer, panel)
+
+
+func _on_projectile_preset_selected(index: int) -> void:
+	if index >= PROJECTILE_TYPES.size():
+		custom_round_active = true
+		return
+	custom_round_active = false
+	current_projectile = PROJECTILE_TYPES[index].duplicate(true)
+
+
+func _open_round_editor() -> void:
+	if is_instance_valid(round_editor_screen):
+		return
+	if custom_round_active and not current_projectile.is_empty():
+		current_projectile = current_projectile.duplicate(true)
+	else:
+		current_projectile = PROJECTILE_TYPES[projectile_picker.selected].duplicate(true)
+	current_projectile["shape"] = "custom"
+	current_projectile["name"] = "Custom round"
+	if not current_projectile.has("nose"):
+		current_projectile["nose"] = "Ogive"
+	if not current_projectile.has("material"):
+		current_projectile["material"] = "Steel"
+	if not current_projectile.has("density"):
+		current_projectile["density"] = 7850.0
+	if not current_projectile.has("tip_length"):
+		current_projectile["tip_length"] = 0.0
+	_build_round_editor()
+
+
+func _build_round_editor() -> void:
+	var layer := get_node_or_null("RoundEditorLayer") as CanvasLayer
+	if layer == null:
+		layer = CanvasLayer.new()
+		layer.name = "RoundEditorLayer"
+		layer.layer = 10
+		add_child(layer)
+	round_editor_screen = Control.new()
+	round_editor_screen.name = "RoundEditingPage"
+	round_editor_screen.mouse_filter = Control.MOUSE_FILTER_STOP
+	round_editor_screen.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	layer.add_child(round_editor_screen)
+
+	var background := ColorRect.new()
+	background.color = Color(0.012, 0.022, 0.034, 1.0)
+	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	round_editor_screen.add_child(background)
+
+	var margins := MarginContainer.new()
+	margins.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	margins.add_theme_constant_override("margin_left", 26)
+	margins.add_theme_constant_override("margin_right", 26)
+	margins.add_theme_constant_override("margin_top", 18)
+	margins.add_theme_constant_override("margin_bottom", 18)
+	round_editor_screen.add_child(margins)
+	var page := VBoxContainer.new()
+	page.add_theme_constant_override("separation", 14)
+	margins.add_child(page)
+
+	var header := HBoxContainer.new()
+	page.add_child(header)
+	var title := Label.new()
+	title.text = "PROJECTILE LAB  /  ROUND DESIGN"
+	title.add_theme_font_size_override("font_size", 25)
+	title.add_theme_color_override("font_color", Color(0.78, 0.94, 0.98))
+	header.add_child(title)
+	var header_spacer := Control.new()
+	header_spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header.add_child(header_spacer)
+	var return_button := Button.new()
+	return_button.text = "SAVE & RETURN TO RANGE"
+	return_button.custom_minimum_size = Vector2(260.0, 48.0)
+	return_button.add_theme_font_size_override("font_size", 17)
+	return_button.pressed.connect(_close_round_editor)
+	header.add_child(return_button)
+
+	var body := HBoxContainer.new()
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	body.add_theme_constant_override("separation", 16)
+	page.add_child(body)
+
+	var editor_card := PanelContainer.new()
+	editor_card.custom_minimum_size = Vector2(390.0, 0.0)
+	editor_card.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	body.add_child(editor_card)
+	var card_style := StyleBoxFlat.new()
+	card_style.bg_color = Color(0.018, 0.044, 0.061, 0.92)
+	card_style.border_color = Color(0.12, 0.68, 0.82, 0.78)
+	card_style.set_border_width_all(1)
+	card_style.set_corner_radius_all(5)
+	editor_card.add_theme_stylebox_override("panel", card_style)
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	editor_card.add_child(scroll)
+	var form := VBoxContainer.new()
+	form.add_theme_constant_override("separation", 7)
+	form.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(form)
+
+	var instructions := Label.new()
+	instructions.text = "Shape the round. Geometry and material set mass; nose profile sets drag."
+	instructions.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	instructions.add_theme_color_override("font_color", Color(0.70, 0.84, 0.89))
+	form.add_child(instructions)
+
+	var nose_label := Label.new()
+	nose_label.text = "NOSE PROFILE"
+	form.add_child(nose_label)
+	round_nose_picker = OptionButton.new()
+	for nose_name in ROUND_NOSES:
+		round_nose_picker.add_item(nose_name)
+	round_nose_picker.selected = max(ROUND_NOSES.find(str(current_projectile.get("nose", "Ogive"))), 0)
+	form.add_child(round_nose_picker)
+
+	var material_label := Label.new()
+	material_label.text = "BODY MATERIAL"
+	form.add_child(material_label)
+	round_material_picker = OptionButton.new()
+	for material_data in ROUND_MATERIALS:
+		round_material_picker.add_item(str(material_data.name))
+	var initial_material := 1
+	for material_index in ROUND_MATERIALS.size():
+		if ROUND_MATERIALS[material_index].name == str(current_projectile.get("material", "Steel")):
+			initial_material = material_index
+	round_material_picker.selected = initial_material
+	form.add_child(round_material_picker)
+
+	round_diameter_slider = _add_round_editor_slider(form, "BODY DIAMETER", 80.0, 320.0, 5.0, float(current_projectile.get("diameter", 0.18)) * 1000.0)
+	round_length_slider = _add_round_editor_slider(form, "OVERALL LENGTH", 250.0, 1250.0, 25.0, maxf(float(current_projectile.get("length", 0.54)), 0.25) * 1000.0)
+	round_dimensions_label = Label.new()
+	round_dimensions_label.add_theme_color_override("font_color", Color(0.45, 0.86, 0.95))
+	form.add_child(round_dimensions_label)
+	round_mass_label = Label.new()
+	round_mass_label.add_theme_font_size_override("font_size", 23)
+	round_mass_label.add_theme_color_override("font_color", Color(0.96, 0.67, 0.29))
+	form.add_child(round_mass_label)
+	round_volume_label = Label.new()
+	form.add_child(round_volume_label)
+	round_material_label = Label.new()
+	form.add_child(round_material_label)
+
+	var preview_column := VBoxContainer.new()
+	preview_column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	preview_column.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	body.add_child(preview_column)
+	var preview_title := Label.new()
+	preview_title.text = "LIVE PROFILE  •  DRAG TO CHANGE THE GEOMETRY"
+	preview_title.add_theme_color_override("font_color", Color(0.47, 0.83, 0.92))
+	preview_column.add_child(preview_title)
+	var preview_frame := PanelContainer.new()
+	preview_frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	preview_frame.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	preview_column.add_child(preview_frame)
+	var preview_frame_style := StyleBoxFlat.new()
+	preview_frame_style.bg_color = Color(0.023, 0.038, 0.055, 1.0)
+	preview_frame_style.border_color = Color(0.10, 0.54, 0.67, 0.62)
+	preview_frame_style.set_border_width_all(1)
+	preview_frame_style.set_corner_radius_all(4)
+	preview_frame.add_theme_stylebox_override("panel", preview_frame_style)
+	var viewport_container := SubViewportContainer.new()
+	viewport_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	viewport_container.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	viewport_container.stretch = true
+	preview_frame.add_child(viewport_container)
+	round_preview_view = SubViewport.new()
+	round_preview_view.size = Vector2i(720, 480)
+	round_preview_view.own_world_3d = true
+	round_preview_view.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	viewport_container.add_child(round_preview_view)
+	_build_round_preview_scene()
+	_refresh_round_design()
+
+	var footer := Label.new()
+	footer.text = "TIP PROFILE CHANGES DRAG  •  MATERIAL + VOLUME SET MASS  •  TAKE YOUR DESIGN TO THE RANGE"
+	footer.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	footer.add_theme_color_override("font_color", Color(0.52, 0.71, 0.78))
+	preview_column.add_child(footer)
+
+	round_nose_picker.item_selected.connect(_on_round_design_changed)
+	round_material_picker.item_selected.connect(_on_round_material_changed)
+	round_diameter_slider.value_changed.connect(_on_round_design_changed)
+	round_length_slider.value_changed.connect(_on_round_design_changed)
+	_on_round_design_changed(0.0)
+
+
+func _add_round_editor_slider(parent: VBoxContainer, caption: String, minimum: float, maximum: float, step: float, initial: float) -> HSlider:
+	var label := Label.new()
+	label.text = caption
+	label.add_theme_color_override("font_color", Color(0.79, 0.87, 0.90))
+	parent.add_child(label)
+	var slider := HSlider.new()
+	slider.min_value = minimum
+	slider.max_value = maximum
+	slider.step = step
+	slider.value = clampf(initial, minimum, maximum)
+	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	slider.custom_minimum_size.y = 30.0
+	parent.add_child(slider)
+	return slider
+
+
+func _build_round_preview_scene() -> void:
+	var preview_world := Node3D.new()
+	preview_world.name = "RoundPreviewWorld"
+	round_preview_view.add_child(preview_world)
+	var preview_environment := WorldEnvironment.new()
+	var env := Environment.new()
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = Color(0.023, 0.038, 0.055)
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color(0.48, 0.57, 0.68)
+	env.ambient_light_energy = 0.72
+	preview_environment.environment = env
+	preview_world.add_child(preview_environment)
+	var key := DirectionalLight3D.new()
+	key.rotation_degrees = Vector3(-35.0, -28.0, 0.0)
+	key.light_color = Color(0.67, 0.84, 1.0)
+	key.light_energy = 1.25
+	preview_world.add_child(key)
+	var rim := OmniLight3D.new()
+	rim.position = Vector3(-1.0, 1.2, -1.4)
+	rim.light_color = Color(0.12, 0.72, 0.92)
+	rim.light_energy = 2.0
+	rim.omni_range = 5.0
+	rim.shadow_enabled = false
+	preview_world.add_child(rim)
+	var pedestal := MeshInstance3D.new()
+	var pedestal_mesh := CylinderMesh.new()
+	pedestal_mesh.top_radius = 0.72
+	pedestal_mesh.bottom_radius = 0.78
+	pedestal_mesh.height = 0.10
+	pedestal_mesh.radial_segments = 48
+	pedestal.mesh = pedestal_mesh
+	pedestal.position = Vector3(0.0, -0.66, 0.0)
+	pedestal.material_override = _material(Color(0.08, 0.16, 0.20), 0.78, 0.34)
+	preview_world.add_child(pedestal)
+	var accent := MeshInstance3D.new()
+	var accent_mesh := TorusMesh.new()
+	accent_mesh.inner_radius = 0.70
+	accent_mesh.outer_radius = 0.73
+	accent_mesh.rings = 48
+	accent_mesh.ring_segments = 12
+	accent.mesh = accent_mesh
+	accent.position = Vector3(0.0, -0.59, 0.0)
+	accent.rotation.x = PI * 0.5
+	accent.material_override = _material(Color(0.96, 0.36, 0.08), 0.62, 0.3)
+	preview_world.add_child(accent)
+	round_preview_spin = Node3D.new()
+	preview_world.add_child(round_preview_spin)
+	var preview_camera := Camera3D.new()
+	preview_camera.position = Vector3(2.25, 1.18, 3.15)
+	preview_camera.fov = 37.0
+	preview_camera.current = true
+	preview_world.add_child(preview_camera)
+	preview_camera.look_at(Vector3.ZERO, Vector3.UP)
+
+
+func _process(delta: float) -> void:
+	if is_instance_valid(round_preview_spin) and is_instance_valid(round_editor_screen):
+		round_preview_spin.rotation.y += delta * 0.18
+
+
+func _on_round_design_changed(_value: float) -> void:
+	if not is_instance_valid(round_diameter_slider) or not is_instance_valid(round_length_slider):
+		return
+	var nose_index := round_nose_picker.selected if is_instance_valid(round_nose_picker) else 0
+	var material_index := round_material_picker.selected if is_instance_valid(round_material_picker) else 1
+	var material_data: Dictionary = ROUND_MATERIALS[clampi(material_index, 0, ROUND_MATERIALS.size() - 1)]
+	current_projectile["shape"] = "custom"
+	current_projectile["name"] = "Custom round"
+	current_projectile["diameter"] = round_diameter_slider.value / 1000.0
+	current_projectile["length"] = round_length_slider.value / 1000.0
+	current_projectile["nose"] = ROUND_NOSES[clampi(nose_index, 0, ROUND_NOSES.size() - 1)]
+	current_projectile["material"] = material_data.name
+	current_projectile["density"] = material_data.density
+	current_projectile["color"] = material_data.color
+	var radius := float(current_projectile.diameter) * 0.5
+	var nose_length := minf(float(current_projectile.diameter) * 1.35, float(current_projectile.length) * 0.45)
+	current_projectile["tip_length"] = nose_length
+	current_projectile["mass"] = _round_volume(current_projectile) * float(current_projectile.density)
+	current_projectile["cd"] = _round_drag_coefficient(str(current_projectile.nose))
+	custom_round_active = true
+	if is_instance_valid(projectile_picker):
+		projectile_picker.select(PROJECTILE_TYPES.size())
+	_refresh_round_design()
+
+
+func _on_round_material_changed(_index: int) -> void:
+	_on_round_design_changed(0.0)
+
+
+func _round_volume(design: Dictionary) -> float:
+	var radius := float(design.diameter) * 0.5
+	var length := float(design.length)
+	var nose_length := minf(float(design.get("tip_length", radius * 2.7)), length * 0.45)
+	var area := PI * radius * radius
+	var body_volume := area * maxf(length - nose_length, 0.0)
+	var nose_shape := str(design.get("nose", "Ogive"))
+	var nose_factor := 0.55
+	match nose_shape:
+		"Conical":
+			nose_factor = 1.0 / 3.0
+		"Flat":
+			nose_factor = 1.0
+		"Round":
+			nose_factor = 0.58
+	return body_volume + area * nose_length * nose_factor
+
+
+func _round_drag_coefficient(nose_shape: String) -> float:
+	match nose_shape:
+		"Conical":
+			return 0.31
+		"Flat":
+			return 0.42
+		"Round":
+			return 0.34
+		_:
+			return 0.24
+
+
+func _round_profile(design: Dictionary) -> Array[Vector2]:
+	var radius := float(design.diameter) * 0.5
+	var length := float(design.length)
+	var nose_length := minf(float(design.get("tip_length", radius * 2.7)), length * 0.45)
+	var body_end_z := -length * 0.5 + nose_length
+	var profile: Array[Vector2] = []
+	profile.append(Vector2(radius, length * 0.5))
+	profile.append(Vector2(radius, body_end_z))
+	for segment in range(1, 9):
+		var t := float(segment) / 8.0
+		var ring_radius := radius
+		match str(design.get("nose", "Ogive")):
+			"Conical":
+				ring_radius = radius * (1.0 - t)
+			"Round":
+				var smooth := t * t * (3.0 - 2.0 * t)
+				ring_radius = radius * (1.0 - smooth)
+			"Flat":
+				ring_radius = radius
+			_:
+				ring_radius = radius * sqrt(maxf(0.0, 1.0 - t * t))
+		var z := lerpf(body_end_z, -length * 0.5, t)
+		profile.append(Vector2(ring_radius, z))
+	return profile
+
+
+func _round_collision_points(design: Dictionary) -> PackedVector3Array:
+	var points := PackedVector3Array()
+	for ring in _round_profile(design):
+		for slice in range(16):
+			var angle := TAU * float(slice) / 16.0
+			points.append(Vector3(ring.x * cos(angle), ring.x * sin(angle), ring.y))
+	return points
+
+
+func _build_round_mesh(design: Dictionary) -> ArrayMesh:
+	var profile := _round_profile(design)
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var slices := 32
+	for segment in range(profile.size() - 1):
+		var first: Vector2 = profile[segment]
+		var second: Vector2 = profile[segment + 1]
+		for slice in range(slices):
+			var a0 := TAU * float(slice) / slices
+			var a1 := TAU * float(slice + 1) / slices
+			var p00 := Vector3(first.x * cos(a0), first.x * sin(a0), first.y)
+			var p01 := Vector3(first.x * cos(a1), first.x * sin(a1), first.y)
+			var p10 := Vector3(second.x * cos(a0), second.x * sin(a0), second.y)
+			var p11 := Vector3(second.x * cos(a1), second.x * sin(a1), second.y)
+			tool.add_vertex(p00)
+			tool.add_vertex(p10)
+			tool.add_vertex(p01)
+			tool.add_vertex(p01)
+			tool.add_vertex(p10)
+			tool.add_vertex(p11)
+	var radius := float(design.diameter) * 0.5
+	var back_z := float(design.length) * 0.5
+	for slice in range(slices):
+		var a0 := TAU * float(slice) / slices
+		var a1 := TAU * float(slice + 1) / slices
+		tool.add_vertex(Vector3(0.0, 0.0, back_z))
+		tool.add_vertex(Vector3(radius * cos(a1), radius * sin(a1), back_z))
+		tool.add_vertex(Vector3(radius * cos(a0), radius * sin(a0), back_z))
+	if str(design.get("nose", "")) == "Flat":
+		var front_z := -float(design.length) * 0.5
+		for slice in range(slices):
+			var a0 := TAU * float(slice) / slices
+			var a1 := TAU * float(slice + 1) / slices
+			tool.add_vertex(Vector3(0.0, 0.0, front_z))
+			tool.add_vertex(Vector3(radius * cos(a0), radius * sin(a0), front_z))
+			tool.add_vertex(Vector3(radius * cos(a1), radius * sin(a1), front_z))
+	tool.generate_normals()
+	return tool.commit()
+
+
+func _refresh_round_design() -> void:
+	if not is_instance_valid(round_editor_screen):
+		return
+	var diameter_mm := float(current_projectile.get("diameter", 0.18)) * 1000.0
+	var length_mm := float(current_projectile.get("length", 0.54)) * 1000.0
+	var tip_mm := float(current_projectile.get("tip_length", 0.0)) * 1000.0
+	if is_instance_valid(round_dimensions_label):
+		round_dimensions_label.text = "%s  •  Ø %0.0f MM  ×  %0.0f MM\nNOSE: %0.0f MM" % [str(current_projectile.nose).to_upper(), diameter_mm, length_mm, tip_mm]
+	if is_instance_valid(round_mass_label):
+		round_mass_label.text = "ESTIMATED MASS  •  %0.2f KG" % float(current_projectile.mass)
+	if is_instance_valid(round_volume_label):
+		round_volume_label.text = "SOLID VOLUME  •  %0.1f L" % (_round_volume(current_projectile) * 1000.0)
+	if is_instance_valid(round_material_label):
+		round_material_label.text = "%s  •  %0.0f KG/M³" % [str(current_projectile.material).to_upper(), float(current_projectile.density)]
+	if is_instance_valid(round_preview_model):
+		round_preview_model.queue_free()
+		round_preview_model = null
+	if is_instance_valid(round_preview_spin):
+		var mesh_instance := MeshInstance3D.new()
+		mesh_instance.name = "Live machined round preview"
+		mesh_instance.mesh = _build_round_mesh(current_projectile)
+		mesh_instance.material_override = _material(current_projectile.color, 0.76, 0.27)
+		round_preview_spin.add_child(mesh_instance)
+		round_preview_model = mesh_instance
+		var preview_camera := round_preview_view.get_camera_3d()
+		if is_instance_valid(preview_camera):
+			var length := float(current_projectile.length)
+			var diameter := float(current_projectile.diameter)
+			preview_camera.position = Vector3(length * 1.75, diameter * 6.0, length * 2.8)
+			preview_camera.look_at(Vector3.ZERO, Vector3.UP)
+
+
+func _close_round_editor() -> void:
+	if is_instance_valid(round_editor_screen):
+		round_editor_screen.queue_free()
+		round_editor_screen = null
+	if is_instance_valid(status_label):
+		status_label.text = "CUSTOM ROUND READY  •  %0.2f KG  •  %s" % [float(current_projectile.mass), str(current_projectile.nose).to_upper()]
 
 
 func _toggle_projectile_camera() -> void:
@@ -702,7 +1180,7 @@ func _update_camera() -> void:
 
 func _fire_test_shot() -> void:
 	shot_count += 1
-	var design: Dictionary = PROJECTILE_TYPES[projectile_picker.selected]
+	var design: Dictionary = current_projectile.duplicate(true) if custom_round_active else PROJECTILE_TYPES[projectile_picker.selected].duplicate(true)
 	status_label.text = "SHOT %02d  •  %s" % [shot_count, str(design.name).to_upper()]
 	var projectile := RigidBody3D.new()
 	projectile.name = "TestProjectile_%02d" % shot_count
@@ -716,7 +1194,9 @@ func _fire_test_shot() -> void:
 	var mesh_instance := MeshInstance3D.new()
 	var radius := float(design.diameter) * 0.5
 	var mesh: Mesh
-	if design.shape == "sphere":
+	if design.shape == "custom":
+		mesh = _build_round_mesh(design)
+	elif design.shape == "sphere":
 		var sphere := SphereMesh.new()
 		sphere.radius = radius
 		sphere.height = radius * 2.0
@@ -727,7 +1207,8 @@ func _fire_test_shot() -> void:
 		capsule.height = float(design.length)
 		mesh = capsule
 	mesh_instance.mesh = mesh
-	mesh_instance.rotation.x = PI * 0.5
+	if design.shape != "custom":
+		mesh_instance.rotation.x = PI * 0.5
 	var projectile_material := _material(design.color, 0.52, 0.22)
 	projectile_material.emission_enabled = true
 	projectile_material.emission = Color(0.18, 0.73, 1.0) if design.shape != "shuttle" else Color(1.0, 0.28, 0.06)
@@ -752,7 +1233,11 @@ func _fire_test_shot() -> void:
 	projectile.add_child(projectile_light)
 	var collision := CollisionShape3D.new()
 	var collision_shape: Shape3D
-	if design.shape == "sphere":
+	if design.shape == "custom":
+		var round_shape := ConvexPolygonShape3D.new()
+		round_shape.points = _round_collision_points(design)
+		collision_shape = round_shape
+	elif design.shape == "sphere":
 		var sphere_shape := SphereShape3D.new()
 		sphere_shape.radius = radius
 		collision_shape = sphere_shape
