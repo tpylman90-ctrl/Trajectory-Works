@@ -115,14 +115,14 @@ def cylinder_between(name, start, end, radius, mat, vertices=64):
     return finish(obj, mat, min(radius * 0.12, 0.018))
 
 
-def torus(name, location, major, minor, mat):
+def torus(name, location, major, minor, mat, rotation=(0.0, 0.0, 0.0)):
     bpy.ops.mesh.primitive_torus_add(
         major_segments=64,
         minor_segments=16,
         major_radius=major,
         minor_radius=minor,
         location=location,
-        rotation=(math.pi * 0.5, 0.0, 0.0),
+        rotation=rotation,
     )
     obj = bpy.context.object
     obj.name = name
@@ -150,12 +150,26 @@ def build():
     # Pre-compensate the Blender glTF exporter's Z-up to Y-up axis rotation so
     # those coordinates arrive unchanged when Godot imports the GLB.
     cube("Foundation | chamfered skid", (0.0, 0.05, 0.0), (2.8, 0.32, 3.6), dark, 0.12)
-    cube("Upper cradle", (0.0, 0.30, -0.12), (2.25, 0.32, 2.25), blue_edge, 0.08)
+    # Azimuth bearing and rotating table replace the plain square cradle.
+    cylinder_between("Azimuth bearing | lower race", (0.0, 0.20, 0.0), (0.0, 0.34, 0.0), 1.15, dark)
+    torus("Azimuth bearing | machined race", (0.0, 0.34, 0.0), 1.02, 0.035, fastener_metal, rotation=(math.pi * 0.5, 0.0, 0.0))
+    cylinder_between("Rotating gun table", (0.0, 0.34, 0.0), (0.0, 0.48, 0.0), 0.94, blue_edge)
+    torus("Rotating table | copper seal", (0.0, 0.475, 0.0), 0.81, 0.032, copper, rotation=(math.pi * 0.5, 0.0, 0.0))
+    for index in range(12):
+        angle = math.tau * index / 12.0
+        fastener("Azimuth table lock bolt", (math.cos(angle) * 0.88, 0.48, math.sin(angle) * 0.88), (0.0, 1.0, 0.0), 0.035, fastener_metal)
     for x in (-0.82, 0.82):
         cube("Recoil rail", (x, 0.53, -0.55), (0.16, 0.3, 1.75), dark, 0.035)
         cube("Rail highlight", (x, 0.70, -0.55), (0.075, 0.055, 1.45), copper, 0.015)
 
     cube("Armored pressure housing", (0.0, 0.93, 0.0), (2.05, 1.30, 1.75), blue, 0.27)
+    # Exposed elevation trunnions and paired yoke struts make the mount read as operable machinery.
+    for side in (-1, 1):
+        cylinder_between("Elevation yoke strut", (side * 0.82, 0.44, 0.34), (side * 0.91, 0.93, 0.34), 0.14, dark)
+        cylinder_between("Trunnion drum", (side * 0.94, 0.94, 0.30), (side * 1.19, 0.94, 0.30), 0.39, blue_edge)
+        torus("Trunnion bronze race", (side * 1.18, 0.94, 0.30), 0.31, 0.035, copper, rotation=(0.0, math.pi * 0.5, 0.0))
+        cylinder_between("Trunnion locking hub", (side * 1.19, 0.94, 0.30), (side * 1.24, 0.94, 0.30), 0.19, dark)
+        cylinder_between("Trunnion center cap", (side * 1.24, 0.94, 0.30), (side * 1.27, 0.94, 0.30), 0.105, fastener_metal)
     # Sculpted shoulder armor softens the silhouette and breaks up the large blue mass.
     for side in (-1, 1):
         shoulder = cube("Floating shoulder armor", (side * 0.73, 1.40, -0.05), (0.62, 0.34, 1.42), ceramic, 0.14)
@@ -180,31 +194,42 @@ def build():
         for z in (-0.61, 0.61):
             cylinder_between("Shoulder armor pin", (side * 0.91, 1.41, z), (side * 0.94, 1.41, z), 0.045, fastener_metal, vertices=24)
 
-    # Barrel, muzzle collar, and multiple copper induction rings.
+    # Long titanium bore with a shaped four-rail armor shroud and recessed side channels.
     cylinder_between("Main barrel", (0.0, 1.17, -0.82), (0.0, 1.17, -6.75), 0.31, barrel)
-    for y, radius in ((1.17, 0.43), (1.17, 0.39)):
-        torus("Muzzle restraint ring", (0.0, y, -6.52), radius, 0.075, dark)
-    for index in range(10):
-        y = 1.17
-        z = -0.95 - index * 0.27
-        torus("Copper induction coil %02d" % (index + 1), (0.0, y, z), 0.39, 0.055, copper)
-    torus("Muzzle field indicator", (0.0, 1.17, -6.98), 0.36, 0.035, cyan)
+    for side in (-1, 1):
+        cube("Shroud cheek | cobalt alloy", (side * 0.315, 1.17, -4.22), (0.18, 0.36, 3.95), ceramic, 0.075)
+        cube("Recessed channel | graphite", (side * 0.414, 1.17, -4.22), (0.025, 0.115, 3.28), graphite, 0.018)
+        cube("Channel highlight | titanium", (side * 0.431, 1.255, -4.22), (0.018, 0.028, 2.75), fastener_metal, 0.009)
+    for offset in (-0.32, 0.32):
+        cube("Shroud spine", (0.0, 1.17 + offset, -4.18), (0.17, 0.15, 3.92), blue_edge, 0.065)
+        cube("Spine seam", (0.0, 1.17 + offset * 1.30, -4.18), (0.065, 0.022, 3.24), barrel, 0.009)
+    for index, z in enumerate((-2.55, -3.68, -4.81, -5.76)):
+        torus("Barrel clamp band %02d" % (index + 1), (0.0, 1.17, z), 0.405, 0.042, dark)
+        torus("Clamp edge | titanium", (0.0, 1.17, z - 0.045), 0.408, 0.018, fastener_metal)
+    # Visible copper induction stack transitions from the receiver into the armored tube.
+    for index in range(8):
+        z = -1.02 - index * 0.16
+        torus("Copper induction coil %02d" % (index + 1), (0.0, 1.17, z), 0.375, 0.052, copper)
+    torus("Muzzle restraint | rear", (0.0, 1.17, -6.22), 0.47, 0.055, dark)
+    torus("Muzzle crown | titanium", (0.0, 1.17, -6.89), 0.47, 0.075, fastener_metal)
+    torus("Muzzle field indicator", (0.0, 1.17, -6.96), 0.355, 0.035, cyan)
 
     # Twin pressure accumulators and protective saddles.
     for side in (-1, 1):
         x = side * 1.04
         cylinder_between("Pressure accumulator", (x, 0.42, 0.18), (x, 1.30, 0.18), 0.27, blue_edge)
         for y in (0.48, 1.23):
-            torus("Accumulator retaining band", (x, y, 0.18), 0.285, 0.035, copper)
+            torus("Accumulator retaining band", (x, y, 0.18), 0.285, 0.035, copper, rotation=(math.pi * 0.5, 0.0, 0.0))
         cube("Accumulator guard", (x, 0.86, 0.18), (0.12, 1.08, 0.16), dark, 0.025)
         cylinder_between("Feed manifold", (side * 0.75, 0.60, 0.75), (x, 0.55, 0.35), 0.075, tube)
         cylinder_between("Coil feed", (x, 0.55, 0.35), (side * 0.68, 1.05, -1.12), 0.06, copper)
         cube("Side armor lug", (side * 1.07, 0.92, -0.43), (0.20, 0.42, 0.65), blue_edge, 0.045)
 
-    # A layered muzzle assembly reads as a working pressure/field device.
-    cylinder_between("Muzzle shroud", (0.0, 1.17, -6.20), (0.0, 1.17, -6.92), 0.425, blue_edge)
-    torus("Muzzle seal | graphite", (0.0, 1.17, -6.22), 0.429, 0.035, graphite)
-    torus("Muzzle crown | titanium", (0.0, 1.17, -6.91), 0.433, 0.055, fastener_metal)
+    # A stepped muzzle jacket, inset bore, and concentric field emitter finish the barrel.
+    cylinder_between("Muzzle shroud", (0.0, 1.17, -6.18), (0.0, 1.17, -6.82), 0.425, blue_edge)
+    cylinder_between("Bore shadow insert", (0.0, 1.17, -6.79), (0.0, 1.17, -6.805), 0.285, graphite, vertices=64)
+    torus("Muzzle seal | graphite", (0.0, 1.17, -6.20), 0.432, 0.035, graphite)
+    torus("Muzzle crown | titanium", (0.0, 1.17, -6.83), 0.455, 0.055, fastener_metal)
     for index in range(8):
         angle = index * math.tau / 8.0
         fastener(
@@ -226,7 +251,7 @@ def build():
     for side in (-1, 1):
         x = side * 0.57
         cylinder_between("Regulator body", (x, 0.50, 0.57), (x, 0.95, 0.57), 0.14, dark)
-        torus("Regulator brass seat", (x, 0.92, 0.57), 0.145, 0.025, copper)
+        torus("Regulator brass seat", (x, 0.92, 0.57), 0.145, 0.025, copper, rotation=(math.pi * 0.5, 0.0, 0.0))
         cylinder_between("Regulator cap", (x, 0.95, 0.57), (x, 1.06, 0.57), 0.09, fastener_metal)
         cylinder_between("Regulator indicator", (x, 1.06, 0.57), (x, 1.075, 0.57), 0.045, cyan, vertices=32)
 
