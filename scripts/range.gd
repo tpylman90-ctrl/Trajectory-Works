@@ -41,6 +41,7 @@ func _ready() -> void:
 	Engine.physics_ticks_per_second = 120
 	_build_world()
 	_build_cannon()
+	_add_ambient_steam()
 	_build_range()
 	_build_range_details()
 	_build_range_assets()
@@ -55,9 +56,9 @@ func _build_world() -> void:
 	environment.sky = Sky.new()
 	var sky_shader := Shader.new()
 	sky_shader.code = """shader_type sky;
-uniform vec3 sky_top : source_color = vec3(0.035, 0.075, 0.14);
-uniform vec3 sky_horizon : source_color = vec3(0.32, 0.43, 0.52);
-uniform vec3 cloud_color : source_color = vec3(0.42, 0.48, 0.53);
+uniform vec3 sky_top : source_color = vec3(0.012, 0.022, 0.052);
+uniform vec3 sky_horizon : source_color = vec3(0.12, 0.16, 0.23);
+uniform vec3 cloud_color : source_color = vec3(0.19, 0.22, 0.29);
 float hash21(vec2 p) {
 	p = fract(p * vec2(123.34, 456.21));
 	p += dot(p, p + 45.32);
@@ -80,11 +81,13 @@ void sky() {
 	vec2 cloud_uv = direction.xz * 18.0 / max(direction.y + 0.32, 0.18);
 	float cloud_shape = noise2d(cloud_uv * 0.22) * 0.68
 		+ noise2d(cloud_uv * 0.72 + vec2(8.3, 2.7)) * 0.32;
-	float cloud_cover = smoothstep(0.48, 0.76, cloud_shape);
+	float cloud_cover = smoothstep(0.37, 0.68, cloud_shape);
 	float cloud_band = smoothstep(-0.04, 0.24, direction.y) * (1.0 - smoothstep(0.58, 0.88, direction.y));
 	float lower_atmosphere = 1.0 - smoothstep(-0.10, 0.10, direction.y);
 	base = mix(vec3(0.055, 0.085, 0.11), base, 1.0 - lower_atmosphere);
-	base = mix(base, cloud_color, cloud_cover * cloud_band * 0.68);
+	base = mix(base, cloud_color, cloud_cover * cloud_band * 0.82);
+	float dusk_glow = pow(1.0 - clamp(abs(direction.y), 0.0, 1.0), 7.0) * (1.0 - cloud_cover * 0.72);
+	base += vec3(0.085, 0.032, 0.012) * dusk_glow;
 	COLOR = base;
 }
 """
@@ -92,31 +95,40 @@ void sky() {
 	sky_material.shader = sky_shader
 	environment.sky.sky_material = sky_material
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	environment.ambient_light_color = Color(0.45, 0.60, 0.76)
-	environment.ambient_light_energy = 0.9
+	environment.ambient_light_color = Color(0.24, 0.31, 0.43)
+	environment.ambient_light_energy = 0.46
 	environment.fog_enabled = true
-	environment.fog_light_color = Color(0.32, 0.43, 0.52)
+	environment.fog_light_color = Color(0.095, 0.13, 0.19)
 	# Keep the 2 km instrumentation visible while preserving a soft distance haze.
-	environment.fog_density = 0.00055
-	environment.fog_sun_scatter = 0.12
+	environment.fog_density = 0.00072
+	environment.fog_sun_scatter = 0.035
+	# Mobile rendering does not support volumetric fog; Forward+ desktops get the real volume.
+	if RenderingServer.get_current_rendering_method() == "forward_plus":
+		environment.volumetric_fog_enabled = true
+		environment.volumetric_fog_density = 0.015
+		environment.volumetric_fog_length = 110.0
+		environment.volumetric_fog_detail_spread = 2.2
+		environment.volumetric_fog_albedo = Color(0.36, 0.43, 0.53)
+		environment.volumetric_fog_emission = Color(0.012, 0.02, 0.04)
+		environment.volumetric_fog_emission_energy = 0.35
 	environment.glow_enabled = true
 	for level in range(7):
 		environment.set_glow_level(level, 0.0)
 	environment.set_glow_level(0, 0.62)
 	environment.set_glow_level(1, 0.42)
 	environment.set_glow_level(2, 0.18)
-	environment.glow_intensity = 0.8
-	environment.glow_strength = 1.0
-	environment.glow_bloom = 0.08
-	environment.glow_hdr_threshold = 0.8
+	environment.glow_intensity = 1.08
+	environment.glow_strength = 1.12
+	environment.glow_bloom = 0.12
+	environment.glow_hdr_threshold = 0.68
 	environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	world.environment = environment
 	add_child(world)
 
 	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-42.0, -28.0, 0.0)
-	sun.light_color = Color(1.0, 0.72, 0.49)
-	sun.light_energy = 1.8
+	sun.rotation_degrees = Vector3(-18.0, -28.0, 0.0)
+	sun.light_color = Color(1.0, 0.55, 0.34)
+	sun.light_energy = 0.62
 	sun.shadow_enabled = true
 	add_child(sun)
 
@@ -255,7 +267,7 @@ func _build_range() -> void:
 		_add_box(self, Vector3(0.0, 10.02, -distance), Vector3(16.0, 0.16, 0.22), Color(0.12, 0.20, 0.24), 0.36, 0.5)
 		_add_box(self, Vector3(0.0, 10.12, -distance), Vector3(3.2, 0.035, 0.25), Color(0.12, 0.84, 0.98), 0.04, 0.28)
 	# Keep one selectable target on the lane so the player can place it beyond a long shot.
-	active_target = _add_target(Vector3(0.0, 2.5, -float(target_distance_m)), 2.5)
+	active_target = _add_target(Vector3(0.0, 3.2, -float(target_distance_m)), 2.5)
 
 
 func _build_range_details() -> void:
@@ -283,19 +295,24 @@ func _build_range_details() -> void:
 				var flood := OmniLight3D.new()
 				flood.position = Vector3(side * 9.65, 4.58, distance)
 				flood.light_color = Color(1.0, 0.54, 0.30)
-				flood.light_energy = 2.4
-				flood.omni_range = 13.0
+				flood.light_energy = 1.15
+				flood.omni_range = 10.0
 				flood.shadow_enabled = false
 				add_child(flood)
 				var beam := SpotLight3D.new()
+				beam.name = "FloodPoleSpotlight"
 				beam.position = Vector3(side * 9.65, 4.55, distance)
-				beam.light_color = Color(1.0, 0.68, 0.43)
-				beam.light_energy = 5.0
-				beam.spot_range = 28.0
-				beam.spot_angle = 48.0
+				beam.light_color = Color(1.0, 0.59, 0.36)
+				beam.light_energy = 4.2
+				beam.spot_range = 32.0
+				beam.spot_angle = 42.0
 				beam.shadow_enabled = false
+				if RenderingServer.get_current_rendering_method() == "forward_plus":
+					beam.light_volumetric_fog_energy = 2.2
 				add_child(beam)
-				beam.look_at(Vector3(0.0, 0.0, distance - 15.0), Vector3.UP)
+				var beam_target := Vector3(0.0, 0.0, distance - 12.0)
+				beam.look_at(beam_target, Vector3.UP)
+				_add_light_shaft(beam.global_position, beam_target, beam.light_color)
 
 
 func _build_range_assets() -> void:
@@ -320,11 +337,10 @@ func _build_hud() -> void:
 	panel.position = Vector2(26.0, 22.0)
 	panel.custom_minimum_size = Vector2(390.0, 142.0)
 	var glass := StyleBoxFlat.new()
-	glass.bg_color = Color(0.018, 0.038, 0.055, 0.86)
-	glass.border_color = Color(0.20, 0.78, 0.91, 0.82)
+	glass.bg_color = Color(0.012, 0.025, 0.039, 0.48)
+	glass.border_color = Color(0.22, 0.82, 0.94, 0.78)
 	glass.set_border_width_all(1)
-	glass.border_width_left = 3
-	glass.set_corner_radius_all(7)
+	glass.set_corner_radius_all(3)
 	glass.shadow_color = Color(0.0, 0.0, 0.0, 0.36)
 	glass.shadow_size = 8
 	panel.add_theme_stylebox_override("panel", glass)
@@ -436,6 +452,7 @@ func _build_hud() -> void:
 	_on_speed_changed(speed_slider.value)
 	_on_elevation_changed(elevation_slider.value)
 	_on_wind_changed(wind_slider.value)
+	_add_hud_corner_marks(layer, panel)
 
 
 func _toggle_projectile_camera() -> void:
@@ -469,7 +486,7 @@ func _on_target_distance_selected(index: int) -> void:
 	if is_instance_valid(target_distance_label):
 		target_distance_label.text = "TARGET DISTANCE  •  %d M" % target_distance_m
 	if is_instance_valid(active_target):
-		active_target.position = Vector3(0.0, 2.5, -float(target_distance_m))
+		active_target.position = Vector3(0.0, 3.2, -float(target_distance_m))
 
 
 func _on_speed_changed(value: float) -> void:
@@ -696,15 +713,22 @@ func _add_target(at: Vector3, radius: float) -> Node3D:
 	target.position = at
 	# Tall instrument stations stand on cross-braced towers, leaving the firing
 	# centerline open for low-angle shots to travel the full two-kilometre lane.
-	var support_half_width := radius * 0.68
-	var tower_bottom := maxf(0.0, at.y - radius)
+	# Armored carriage sits on the lane deck; bogies, rails, and actuator struts tie the plate to it.
+	var chassis_y := -radius - 0.35
+	_add_box(target, Vector3(0.0, chassis_y, -0.35), Vector3(radius * 3.2, 0.70, radius * 2.15), Color(0.055, 0.075, 0.085), 0.78, 0.48)
+	_add_box(target, Vector3(0.0, chassis_y + 0.37, -0.35), Vector3(radius * 2.85, 0.08, radius * 1.9), Color(0.12, 0.19, 0.22), 0.64, 0.38)
 	for side in [-1.0, 1.0]:
-		var lower := Vector3(side * support_half_width, 0.15 - at.y, 0.0)
-		var upper := Vector3(side * support_half_width, -radius, 0.0)
-		_add_pipe(target, lower, upper, maxf(0.075, radius * 0.055), Color(0.10, 0.18, 0.23))
-	for brace_height in range(2, int(tower_bottom), 5):
-		var local_height := float(brace_height) - at.y
-		_add_pipe(target, Vector3(-support_half_width, local_height, 0.0), Vector3(support_half_width, local_height, 0.0), 0.045, Color(0.22, 0.31, 0.35))
+		_add_box(target, Vector3(side * radius * 1.48, chassis_y - 0.13, -0.35), Vector3(0.38, 0.42, radius * 1.8), Color(0.10, 0.16, 0.18), 0.72, 0.36)
+		for bogie_z in [-1.55, 0.85]:
+			var wheel := _add_cylinder(target, Vector3(side * radius * 1.45, chassis_y - 0.26, bogie_z), 0.32, 0.20, Color(0.30, 0.39, 0.41), 0.78, 0.32)
+			wheel.rotation.z = PI * 0.5
+			_add_torus(target, Vector3(side * radius * 1.57, chassis_y - 0.26, bogie_z), 0.22, 0.035, Color(0.78, 0.34, 0.12), 0.72)
+		_add_box(target, Vector3(side * radius * 1.28, chassis_y + 0.74, -0.20), Vector3(0.72, 0.62, 1.05), Color(0.08, 0.17, 0.22), 0.68, 0.34)
+		_add_pipe(target, Vector3(side * radius * 1.34, chassis_y + 0.92, -0.20), Vector3(side * radius * 0.74, -0.62, -0.02), 0.15, Color(0.44, 0.51, 0.52))
+		_add_pipe(target, Vector3(side * radius * 0.74, -0.62, -0.02), Vector3(side * radius * 0.74, -radius, -0.02), 0.11, Color(0.72, 0.31, 0.13))
+		for bolt_z in [-1.8, 1.0]:
+			var bolt := _add_cylinder(target, Vector3(side * radius * 1.47, chassis_y + 0.41, bolt_z), 0.075, 0.035, Color(0.68, 0.76, 0.75), 0.84, 0.24)
+			bolt.rotation.z = PI * 0.5
 	var target_glow := OmniLight3D.new()
 	target_glow.position = Vector3(0.0, 0.0, 0.9)
 	target_glow.light_color = Color(0.16, 0.66, 0.88)
@@ -802,18 +826,26 @@ void vertex() {
 }
 void fragment() {
 	vec2 p = world_position.xz;
-	float broad = value_noise(p * 0.22);
-	float aggregate = value_noise(p * 1.1);
-	float grain = value_noise(p * 12.0);
+	float broad = value_noise(p * 0.11);
+	float aggregate = value_noise(p * 0.72 + vec2(4.3, 8.1));
+	float micro = value_noise(p * 8.0);
+	float grain = value_noise(p * 34.0);
+	float damp = smoothstep(0.38, 0.72, value_noise(p * 0.24 + vec2(11.7, 2.4)));
 	vec2 panel = fract(p / vec2(7.5, 9.0));
 	float seam = max(1.0 - smoothstep(0.006, 0.018, min(panel.x, 1.0 - panel.x)),
 		1.0 - smoothstep(0.006, 0.018, min(panel.y, 1.0 - panel.y)));
-	vec3 concrete = vec3(0.115, 0.155, 0.178);
-	concrete *= 0.76 + broad * 0.20 + aggregate * 0.09 + grain * 0.035;
-	concrete = mix(concrete, vec3(0.035, 0.055, 0.068), seam * 0.82);
-	ALBEDO = concrete;
-	METALLIC = 0.16 + aggregate * 0.08;
-	ROUGHNESS = 0.80 + grain * 0.15;
+	float groove_left = abs(abs(p.x) - 3.55);
+	float groove_right = abs(abs(p.x) - 4.05);
+	float grooves = max(1.0 - smoothstep(0.025, 0.085, groove_left),
+		1.0 - smoothstep(0.025, 0.085, groove_right));
+	vec3 asphalt = vec3(0.027, 0.041, 0.052) * (0.76 + broad * 0.20 + aggregate * 0.12 + micro * 0.06);
+	vec3 damp_reflection = vec3(0.075, 0.092, 0.105) * (0.52 + aggregate * 0.5);
+	asphalt = mix(asphalt, damp_reflection, damp * 0.42);
+	asphalt = mix(asphalt, vec3(0.012, 0.020, 0.026), seam * 0.52);
+	asphalt = mix(asphalt, vec3(0.008, 0.015, 0.019), grooves * 0.88);
+	ALBEDO = asphalt;
+	METALLIC = 0.22 + damp * 0.24;
+	ROUGHNESS = mix(0.72, 0.19, damp) + grain * 0.10;
 }
 """
 	var result := ShaderMaterial.new()
