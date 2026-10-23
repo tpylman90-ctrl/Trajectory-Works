@@ -21,6 +21,7 @@ var camera_yaw := 0.20
 var camera_pitch := 0.24
 var camera_distance := 34.0
 var status_label: Label
+var range_hud_panel: PanelContainer
 var analysis_label: Label
 var projectile_picker: OptionButton
 var current_projectile: Dictionary = {}
@@ -593,9 +594,17 @@ func _show_shot_review() -> void:
 	review_layer.layer = 20
 	add_child(review_layer)
 	var panel := PanelContainer.new()
-	panel.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	panel.position = Vector2(-300.0, 22.0)
-	panel.custom_minimum_size = Vector2(600.0, 0.0)
+	var viewport_size := get_viewport().get_visible_rect().size
+	var review_width := minf(600.0, viewport_size.x - 32.0)
+	var wide_layout := viewport_size.x >= 1100.0
+	panel.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	panel.custom_minimum_size = Vector2(review_width, 0.0)
+	if wide_layout:
+		panel.position = Vector2(viewport_size.x - review_width - 26.0, 22.0)
+	else:
+		panel.position = Vector2(16.0, 22.0)
+		if is_instance_valid(range_hud_panel):
+			range_hud_panel.hide()
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color(0.008, 0.024, 0.034, 0.91)
 	style.border_color = Color(0.16, 0.78, 0.92, 0.9)
@@ -750,6 +759,8 @@ func _close_shot_review() -> void:
 	if is_instance_valid(review_layer):
 		review_layer.queue_free()
 	review_layer = null
+	if is_instance_valid(range_hud_panel):
+		range_hud_panel.show()
 
 
 func _on_replay_speed_selected(index: int) -> void:
@@ -904,7 +915,8 @@ func _stop_slow_replay() -> void:
 func _build_hud() -> void:
 	var layer := CanvasLayer.new()
 	add_child(layer)
-	var panel := PanelContainer.new()
+	range_hud_panel = PanelContainer.new()
+	var panel := range_hud_panel
 	panel.position = Vector2(26.0, 22.0)
 	panel.custom_minimum_size = Vector2(390.0, 142.0)
 	var glass := StyleBoxFlat.new()
