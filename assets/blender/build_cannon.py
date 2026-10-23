@@ -70,7 +70,7 @@ def finish(obj, mat, bevel=0.0):
     if bevel and obj.type == "MESH":
         mod = obj.modifiers.new("Soft machined radii", "BEVEL")
         mod.width = bevel
-        mod.segments = 5
+        mod.segments = 3
         mod.harden_normals = True
         normal = obj.modifiers.new("Weighted corner normals", "WEIGHTED_NORMAL")
         normal.keep_sharp = True
@@ -162,7 +162,7 @@ def build():
         cube("Recoil rail", (x, 0.53, -0.55), (0.16, 0.3, 1.75), dark, 0.035)
         cube("Rail highlight", (x, 0.70, -0.55), (0.075, 0.055, 1.45), copper, 0.015)
 
-    cube("Armored pressure housing", (0.0, 0.93, 0.0), (2.05, 1.30, 1.75), blue, 0.27)
+    cube("Armored pressure housing", (0.0, 0.93, 0.0), (2.05, 1.30, 1.75), blue, 0.20)
     # Exposed elevation trunnions and paired yoke struts make the mount read as operable machinery.
     for side in (-1, 1):
         cylinder_between("Elevation yoke strut", (side * 1.08, 0.44, 0.34), (side * 1.08, 0.93, 0.34), 0.14, dark)
@@ -213,21 +213,42 @@ def build():
         for z in (-0.61, 0.61):
             cylinder_between("Shoulder armor pin", (side * 0.91, 1.41, z), (side * 0.94, 1.41, z), 0.045, fastener_metal, vertices=24)
 
-    # Long titanium bore with a shaped four-rail armor shroud and recessed side channels.
+    # Wide faceted armor housing turns the thin tube into a heavy sci-fi pressure cannon.
     cylinder_between("Main barrel", (0.0, 1.17, -0.82), (0.0, 1.17, -6.75), 0.31, barrel)
+    bpy.ops.mesh.primitive_cone_add(
+        vertices=10,
+        radius1=0.46,
+        radius2=0.64,
+        depth=4.18,
+        location=(0.0, 1.17, -4.16),
+    )
+    shroud = bpy.context.object
+    shroud.name = "Tapered faceted barrel armor"
+    finish(shroud, ceramic, 0.045)
     for side in (-1, 1):
-        cube("Shroud cheek | cobalt alloy", (side * 0.315, 1.17, -4.22), (0.18, 0.36, 3.95), ceramic, 0.075)
-        cube("Recessed channel | graphite", (side * 0.414, 1.17, -4.22), (0.025, 0.115, 3.28), graphite, 0.018)
-        cube("Channel highlight | titanium", (side * 0.431, 1.255, -4.22), (0.018, 0.028, 2.75), fastener_metal, 0.009)
-    for offset in (-0.32, 0.32):
-        cube("Shroud spine", (0.0, 1.17 + offset, -4.18), (0.17, 0.15, 3.92), blue_edge, 0.065)
-        cube("Spine seam", (0.0, 1.17 + offset * 1.30, -4.18), (0.065, 0.022, 3.24), barrel, 0.009)
-    for index, z in enumerate((-2.55, -3.68, -4.81, -5.76)):
-        torus("Barrel clamp band %02d" % (index + 1), (0.0, 1.17, z), 0.405, 0.042, dark)
-        torus("Clamp edge | titanium", (0.0, 1.17, z - 0.045), 0.408, 0.018, fastener_metal)
-    # Visible copper induction stack transitions from the receiver into the armored tube.
-    for index in range(8):
-        z = -1.02 - index * 0.16
+        channel = cube(
+            "Inset power channel | graphite",
+            (side * 0.53, 1.17, -4.15),
+            (0.055, 0.14, 3.40), graphite, 0.022
+        )
+        channel.rotation_euler[1] = side * math.atan(0.10 / 3.40)
+        cube(
+            "Channel status rail | cyan",
+            (side * 0.557, 1.17, -3.06),
+            (0.018, 0.035, 0.72), cyan, 0.009
+        )
+        # Short machined clamps tie the armor shell into the muzzle jacket.
+        cube(
+            "Shroud clamp lug",
+            (side * 0.53, 1.17, -5.85),
+            (0.10, 0.22, 0.25), blue_edge, 0.035
+        )
+    # Distinct metallic bands articulate the two ends of the tapered shell.
+    torus("Shroud breech collar", (0.0, 1.17, -2.15), 0.625, 0.045, dark)
+    torus("Shroud muzzle collar", (0.0, 1.17, -6.14), 0.475, 0.04, fastener_metal)
+    # Exposed copper induction stack remains visible behind the armored forward section.
+    for index in range(7):
+        z = -1.02 - index * 0.145
         torus("Copper induction coil %02d" % (index + 1), (0.0, 1.17, z), 0.375, 0.052, copper)
     torus("Muzzle restraint | rear", (0.0, 1.17, -6.22), 0.47, 0.055, dark)
     torus("Muzzle crown | titanium", (0.0, 1.17, -6.89), 0.47, 0.075, fastener_metal)
