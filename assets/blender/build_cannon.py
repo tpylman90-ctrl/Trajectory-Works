@@ -133,9 +133,9 @@ def build():
     # Make the GLB convenient to place on a range deck in Godot.
     bpy.ops.object.select_all(action="SELECT")
     bpy.context.view_layer.objects.active = bpy.context.selected_objects[0]
-    cancel_glb_axis_conversion = Matrix.Rotation(math.radians(-90.0), 4, "X")
+    precompensate_glb_axis_conversion = Matrix.Rotation(math.radians(90.0), 4, "X")
     for obj in bpy.context.selected_objects:
-        obj.matrix_world = cancel_glb_axis_conversion @ obj.matrix_world
+        obj.matrix_world = precompensate_glb_axis_conversion @ obj.matrix_world
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     bpy.ops.export_scene.gltf(
         filepath=str(OUTPUT),
