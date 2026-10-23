@@ -12,36 +12,53 @@ OUTPUT = ROOT / "assets" / "generated" / "trajectory_cannon.glb"
 
 
 def finish_texture(name, color, roughness):
-    # Small tileable image maps add subtle enamel grain without heavy geometry.
-    # They are packed into the GLB so the mobile game has no loose dependencies.
+    # Packed PBR maps keep the generated GLB self-contained for Android.
     size = 512
     seed = sum((index + 1) * ord(char) for index, char in enumerate(name))
     rng = random.Random(seed)
     color_image = bpy.data.images.new(name + " | enamel grain", width=size, height=size, alpha=False)
     rough_image = bpy.data.images.new(name + " | micro roughness", width=size, height=size, alpha=False)
+    normal_image = bpy.data.images.new(name + " | micro normal", width=size, height=size, alpha=False)
     color_image.colorspace_settings.name = "sRGB"
     rough_image.colorspace_settings.name = "Non-Color"
+    normal_image.colorspace_settings.name = "Non-Color"
     color_pixels = []
     rough_pixels = []
+    normal_pixels = []
     for y in range(size):
+        v = y / size
         for x in range(size):
-            u, v = x / size, y / size
-            grain = (
-                math.sin(math.tau * (u * 19.0 + v * 7.0))
-                + math.sin(math.tau * (u * 43.0 - v * 31.0)) * 0.45
-                + math.sin(math.tau * (u * 71.0 + v * 53.0)) * 0.22
-            ) / 1.67
+            u = x / size
+            phase_a = math.tau * (u * 19.0 + v * 7.0)
+            phase_b = math.tau * (u * 43.0 - v * 31.0)
+            phase_c = math.tau * (u * 71.0 + v * 53.0)
+            grain = (math.sin(phase_a) + math.sin(phase_b) * 0.45 + math.sin(phase_c) * 0.22) / 1.67
+            slope_u = (math.cos(phase_a) * math.tau * 19.0
+                       + math.cos(phase_b) * math.tau * 43.0 * 0.45
+                       + math.cos(phase_c) * math.tau * 71.0 * 0.22) / 1.67
+            slope_v = (math.cos(phase_a) * math.tau * 7.0
+                       - math.cos(phase_b) * math.tau * 31.0 * 0.45
+                       + math.cos(phase_c) * math.tau * 53.0 * 0.22) / 1.67
             micrograin = rng.uniform(-1.0, 1.0)
-            tint = 1.0 + grain * 0.035 + micrograin * 0.012
-            color_pixels.extend((max(0.0, min(1.0, channel * tint)) for channel in color))
+            # Fine directional scuffs and broader roughness variation read as handling wear.
+            scratch_wave = abs(math.sin(math.tau * (u * 137.0 + math.sin(v * math.tau * 9.0) * 0.008)))
+            scratch = max(0.0, 1.0 - scratch_wave / 0.055)
+            scratch *= 0.30 + 0.70 * (0.5 + 0.5 * math.sin(math.tau * (v * 2.0 + u * 0.13)))
+            tint = 1.0 + grain * 0.035 + micrograin * 0.012 - scratch * 0.055
+            color_pixels.extend(max(0.0, min(1.0, channel * tint)) for channel in color)
             color_pixels.append(1.0)
-            r = max(0.04, min(0.96, roughness + grain * 0.05 + micrograin * 0.035))
+            r = max(0.04, min(0.96, roughness + grain * 0.05 + micrograin * 0.035 + scratch * 0.16))
             rough_pixels.extend((r, r, r, 1.0))
+            normal_x = max(0.38, min(0.62, 0.5 - slope_u * 0.00036 + micrograin * 0.012))
+            normal_y = max(0.38, min(0.62, 0.5 - slope_v * 0.00036 + micrograin * 0.012))
+            normal_pixels.extend((normal_x, normal_y, 1.0, 1.0))
     color_image.pixels.foreach_set(color_pixels)
     rough_image.pixels.foreach_set(rough_pixels)
+    normal_image.pixels.foreach_set(normal_pixels)
     color_image.pack()
     rough_image.pack()
-    return color_image, rough_image
+    normal_image.pack()
+    return color_image, rough_image, normal_image
 
 
 def material(name, color, metallic=0.0, roughness=0.45, emission=None):
@@ -54,15 +71,22 @@ def material(name, color, metallic=0.0, roughness=0.45, emission=None):
     shader.inputs["Base Color"].default_value = (*color, 1.0)
     shader.inputs["Metallic"].default_value = metallic
     shader.inputs["Roughness"].default_value = roughness
-    color_image, rough_image = finish_texture(name, color, roughness)
+    color_image, rough_image, normal_image = finish_texture(name, color, roughness)
     color_node = nodes.new("ShaderNodeTexImage")
     color_node.name = name + " | enamel grain"
     color_node.image = color_image
     rough_node = nodes.new("ShaderNodeTexImage")
     rough_node.name = name + " | micro roughness"
     rough_node.image = rough_image
+    normal_node = nodes.new("ShaderNodeTexImage")
+    normal_node.name = name + " | micro normal"
+    normal_node.image = normal_image
+    normal_map = nodes.new("ShaderNodeNormalMap")
+    normal_map.inputs["Strength"].default_value = 0.42
     links.new(color_node.outputs["Color"], shader.inputs["Base Color"])
     links.new(rough_node.outputs["Color"], shader.inputs["Roughness"])
+    links.new(normal_node.outputs["Color"], normal_map.inputs["Color"])
+    links.new(normal_map.outputs["Normal"], shader.inputs["Normal"])
     if emission:
         shader.inputs["Emission Color"].default_value = (*emission, 1.0)
         shader.inputs["Emission Strength"].default_value = 1.5
