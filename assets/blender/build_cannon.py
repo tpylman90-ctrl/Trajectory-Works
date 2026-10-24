@@ -40,14 +40,26 @@ def finish_texture(name, color, roughness):
                        - math.cos(phase_b) * math.tau * 31.0 * 0.45
                        + math.cos(phase_c) * math.tau * 53.0 * 0.22) / 1.67
             micrograin = rng.uniform(-1.0, 1.0)
-            # Fine directional scuffs and broader roughness variation read as handling wear.
+            # Baked scuffs and chipped enamel add wear without extra runtime materials.
             scratch_wave = abs(math.sin(math.tau * (u * 137.0 + math.sin(v * math.tau * 9.0) * 0.008)))
             scratch = max(0.0, 1.0 - scratch_wave / 0.055)
             scratch *= 0.30 + 0.70 * (0.5 + 0.5 * math.sin(math.tau * (v * 2.0 + u * 0.13)))
-            tint = 1.0 + grain * 0.035 + micrograin * 0.012 - scratch * 0.055
-            color_pixels.extend(max(0.0, min(1.0, channel * tint)) for channel in color)
+            chip = 1.0 if rng.random() < 0.0008 else 0.0
+            carbon = 0.0
+            if "barrel" in name.lower() or "pneumatic" in name.lower():
+                band = 0.5 + 0.5 * math.sin(math.tau * (u * 9.0 + math.sin(v * math.tau * 3.0) * 0.08))
+                carbon = max(0.0, 1.0 - abs(band - 0.5) / 0.065) * (0.35 + 0.65 * v)
+            wear = scratch * 0.13 + chip * 0.45
+            tint = 1.0 + grain * 0.035 + micrograin * 0.012 - wear
+            base_color = [channel * tint for channel in color]
+            if carbon > 0.0:
+                base_color = [channel * (1.0 - carbon * 0.58) for channel in base_color]
+            # Exposed-metal flecks along scraped paint edges are baked into the albedo.
+            if chip:
+                base_color = [min(1.0, channel * 0.58 + 0.22) for channel in color]
+            color_pixels.extend(max(0.0, min(1.0, channel)) for channel in base_color)
             color_pixels.append(1.0)
-            r = max(0.04, min(0.96, roughness + grain * 0.05 + micrograin * 0.035 + scratch * 0.16))
+            r = max(0.04, min(0.96, roughness + grain * 0.05 + micrograin * 0.035 + scratch * 0.20 + chip * 0.22))
             rough_pixels.extend((r, r, r, 1.0))
             normal_x = max(0.38, min(0.62, 0.5 - slope_u * 0.00036 + micrograin * 0.012))
             normal_y = max(0.38, min(0.62, 0.5 - slope_v * 0.00036 + micrograin * 0.012))
