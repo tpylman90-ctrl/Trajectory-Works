@@ -63,6 +63,10 @@ var target_distance_label: Label
 var active_target: Node3D
 var target_distance_m := 2000
 var collision_gate_distance_picker: OptionButton
+var collision_gate_material_picker: OptionButton
+var collision_gate_thickness_picker: OptionButton
+var collision_gate_material_index := 0
+var collision_gate_thickness_mm := 100.0
 var collision_gate_button: Button
 var collision_gate_enabled := false
 var collision_gate_distance_m := 2000
@@ -146,6 +150,13 @@ class FlightPlot extends Control:
 
 
 const ROUND_NOSES := ["Ogive", "Conical", "Round", "Flat"]
+const GATE_MATERIALS := [
+	{"name": "Armor steel", "resistance_pa": 3000000000.0},
+	{"name": "Reinforced concrete", "resistance_pa": 650000000.0},
+	{"name": "Ceramic armor", "resistance_pa": 8000000000.0},
+	{"name": "Titanium alloy", "resistance_pa": 2500000000.0},
+]
+const GATE_THICKNESSES_MM := [50, 100, 200, 400, 800]
 const ROUND_MATERIALS := [
 	{"name": "Aluminum alloy", "density": 2700.0, "color": Color(0.58, 0.69, 0.73)},
 	{"name": "Steel", "density": 7850.0, "color": Color(0.40, 0.51, 0.58)},
@@ -443,14 +454,14 @@ func _build_collision_test_gates() -> void:
 		gate.position = Vector3(0.0, 5.0, -float(distance))
 		var collision := CollisionShape3D.new()
 		var collision_box := BoxShape3D.new()
-		collision_box.size = Vector3(18.0, 10.0, 0.16)
+		collision_box.size = Vector3(18.0, 10.0, collision_gate_thickness_mm / 1000.0)
 		collision.shape = collision_box
 		collision.disabled = true
 		gate.add_child(collision)
 		var field := MeshInstance3D.new()
 		field.name = "InactiveImpactField"
 		var field_box := BoxMesh.new()
-		field_box.size = Vector3(18.0, 10.0, 0.055)
+		field_box.size = Vector3(18.0, 10.0, maxf(collision_gate_thickness_mm / 1000.0, 0.055))
 		field.mesh = field_box
 		field.material_override = gate_material
 		field.visible = false
@@ -459,6 +470,24 @@ func _build_collision_test_gates() -> void:
 		collision_gate_shapes.append(collision)
 		collision_gate_visuals.append(field)
 		collision_gate_distances.append(distance)
+
+
+func _on_collision_gate_material_selected(index: int) -> void:
+	collision_gate_material_index = clampi(index, 0, GATE_MATERIALS.size() - 1)
+
+
+func _on_collision_gate_thickness_selected(index: int) -> void:
+	if index < 0 or index >= GATE_THICKNESSES_MM.size():
+		return
+	collision_gate_thickness_mm = float(GATE_THICKNESSES_MM[index])
+	for collision in collision_gate_shapes:
+		var box := collision.shape as BoxShape3D
+		if is_instance_valid(box):
+			box.size.z = collision_gate_thickness_mm / 1000.0
+	for field in collision_gate_visuals:
+		var box_mesh := field.mesh as BoxMesh
+		if is_instance_valid(box_mesh):
+			box_mesh.size.z = maxf(collision_gate_thickness_mm / 1000.0, 0.055)
 
 
 func _on_collision_gate_distance_selected(index: int) -> void:
@@ -802,7 +831,10 @@ func _update_review_text() -> void:
 	if shot_history.is_empty() or not is_instance_valid(review_summary):
 		return
 	var shot: Dictionary = shot_history.back()
-	review_summary.text = "%s  •  RANGE %0.0f M  •  TIME %0.2f S\nAPEX %0.0f M  •  IMPACT %0.0f M/S (MACH %0.2f)  •  SPIN %0.0f RPM\nMASS %0.2f KG  •  DIAMETER %0.0f MM  •  PEAK MACH %0.2f  •  MAX Q %0.1f KPA" % [shot.outcome, shot.range, shot.time, shot.apex, shot.impact_speed, shot.impact_mach, shot.spin_rpm, shot.mass, shot.diameter * 1000.0, shot.peak_mach, shot.max_q / 1000.0]
+	var gate_summary := ""
+	if not shot.get("gate_log", []).is_empty():
+		gate_summary = "\nGATE TEST  •  " + "  •  ".join(PackedStringArray(shot.gate_log))
+	review_summary.text = "%s  •  RANGE %0.0f M  •  TIME %0.2f S\nAPEX %0.0f M  •  IMPACT %0.0f M/S (MACH %0.2f)  •  SPIN %0.0f RPM\nMASS %0.2f KG  •  DIAMETER %0.0f MM  •  PEAK MACH %0.2f  •  MAX Q %0.1f KPA%s" % [shot.outcome, shot.range, shot.time, shot.apex, shot.impact_speed, shot.impact_mach, shot.spin_rpm, shot.mass, shot.diameter * 1000.0, shot.peak_mach, shot.max_q / 1000.0, gate_summary]
 	if shot_history.size() > 1:
 		var previous: Dictionary = shot_history[shot_history.size() - 2]
 		review_compare.text = "VS SHOT %02d  •  RANGE %+0.1f M  •  APEX %+0.1f M  •  IMPACT SPEED %+0.1f M/S" % [previous.shot, float(shot.range) - float(previous.range), float(shot.apex) - float(previous.apex), float(shot.impact_speed) - float(previous.impact_speed)]
@@ -1197,6 +1229,55 @@ func _build_hud() -> void:
 	edit_round_button.add_theme_color_override("font_color", Color(0.55, 0.94, 1.0))
 	edit_round_button.pressed.connect(_open_round_editor)
 	layer.add_child(edit_round_button)
+	var gate_config_label := Label.new()
+	gate_config_label.text = "GATE ARMOR  •  ENERGY-WORK MODEL"
+	gate_config_label.anchor_left = 1.0
+	gate_config_label.anchor_top = 1.0
+	gate_config_label.anchor_right = 1.0
+	gate_config_label.anchor_bottom = 1.0
+	gate_config_label.offset_left = -246.0
+	gate_config_label.offset_top = -446.0
+	gate_config_label.offset_right = -26.0
+	gate_config_label.offset_bottom = -426.0
+	gate_config_label.add_theme_font_size_override("font_size", 13)
+	gate_config_label.add_theme_color_override("font_color", Color(0.55, 0.94, 1.0))
+	layer.add_child(gate_config_label)
+	collision_gate_material_picker = OptionButton.new()
+	collision_gate_material_picker.custom_minimum_size = Vector2(220.0, 40.0)
+	collision_gate_material_picker.anchor_left = 1.0
+	collision_gate_material_picker.anchor_top = 1.0
+	collision_gate_material_picker.anchor_right = 1.0
+	collision_gate_material_picker.anchor_bottom = 1.0
+	collision_gate_material_picker.offset_left = -246.0
+	collision_gate_material_picker.offset_top = -422.0
+	collision_gate_material_picker.offset_right = -26.0
+	collision_gate_material_picker.offset_bottom = -380.0
+	collision_gate_material_picker.add_theme_stylebox_override("normal", selector_style)
+	collision_gate_material_picker.add_theme_stylebox_override("hover", selector_style)
+	collision_gate_material_picker.add_theme_color_override("font_color", Color(0.55, 0.94, 1.0))
+	for material in GATE_MATERIALS:
+		collision_gate_material_picker.add_item(str(material.name))
+	collision_gate_material_picker.select(collision_gate_material_index)
+	collision_gate_material_picker.item_selected.connect(_on_collision_gate_material_selected)
+	layer.add_child(collision_gate_material_picker)
+	collision_gate_thickness_picker = OptionButton.new()
+	collision_gate_thickness_picker.custom_minimum_size = Vector2(220.0, 40.0)
+	collision_gate_thickness_picker.anchor_left = 1.0
+	collision_gate_thickness_picker.anchor_top = 1.0
+	collision_gate_thickness_picker.anchor_right = 1.0
+	collision_gate_thickness_picker.anchor_bottom = 1.0
+	collision_gate_thickness_picker.offset_left = -246.0
+	collision_gate_thickness_picker.offset_top = -376.0
+	collision_gate_thickness_picker.offset_right = -26.0
+	collision_gate_thickness_picker.offset_bottom = -334.0
+	collision_gate_thickness_picker.add_theme_stylebox_override("normal", selector_style)
+	collision_gate_thickness_picker.add_theme_stylebox_override("hover", selector_style)
+	collision_gate_thickness_picker.add_theme_color_override("font_color", Color(0.55, 0.94, 1.0))
+	for thickness_mm in GATE_THICKNESSES_MM:
+		collision_gate_thickness_picker.add_item("%d MM" % thickness_mm)
+	collision_gate_thickness_picker.select(GATE_THICKNESSES_MM.find(int(collision_gate_thickness_mm)))
+	collision_gate_thickness_picker.item_selected.connect(_on_collision_gate_thickness_selected)
+	layer.add_child(collision_gate_thickness_picker)
 	collision_gate_distance_picker = OptionButton.new()
 	collision_gate_distance_picker.custom_minimum_size = Vector2(220.0, 42.0)
 	collision_gate_distance_picker.anchor_left = 1.0
@@ -2683,6 +2764,39 @@ func _hold_projectile_camera_at_impact(position: Vector3, incoming: Vector3) -> 
 		ground_visual.global_position = Vector3(position.x, ground_home.y, position.z)
 
 
+func _gate_penetration_estimate(design: Dictionary, impact_speed: float, incoming: Vector3) -> Dictionary:
+	var material: Dictionary = GATE_MATERIALS[collision_gate_material_index]
+	var mass := maxf(float(design.get("mass", 1.0)), 0.001)
+	var diameter := maxf(float(design.get("diameter", 0.18)), 0.001)
+	var frontal_area := PI * pow(diameter * 0.5, 2.0)
+	var kinetic_energy := 0.5 * mass * impact_speed * impact_speed
+	var nose_factor := 1.0
+	match str(design.get("nose", "Ogive")).to_lower():
+		"ogive": nose_factor = 1.25
+		"conical": nose_factor = 1.12
+		"round": nose_factor = 0.90
+		"flat": nose_factor = 0.68
+	var incidence_cos := maxf(absf(incoming.normalized().dot(Vector3.FORWARD)), 0.15)
+	var path_thickness := (collision_gate_thickness_mm / 1000.0) / incidence_cos
+	var resistance := float(material.get("resistance_pa", 3000000000.0))
+	var penetration_path_m := kinetic_energy * nose_factor / maxf(frontal_area * resistance, 0.001)
+	var required_energy := frontal_area * resistance * path_thickness / nose_factor
+	var perforates := penetration_path_m >= path_thickness
+	var residual_energy := maxf(kinetic_energy - required_energy, 0.0)
+	var exit_speed := sqrt(2.0 * residual_energy / mass) if perforates else 0.0
+	return {
+		"perforates": perforates,
+		"material": str(material.get("name", "Armor steel")),
+		"thickness_mm": collision_gate_thickness_mm,
+		"penetration_mm": penetration_path_m * 1000.0,
+		"kinetic_energy_mj": kinetic_energy / 1000000.0,
+		"required_energy_mj": required_energy / 1000000.0,
+		"exit_speed": exit_speed,
+		"nose_factor": nose_factor,
+		"incidence_deg": rad_to_deg(acos(incidence_cos)),
+	}
+
+
 func _on_projectile_body_entered(body: Node, projectile: RigidBody3D) -> void:
 	var shot_id := projectile.get_instance_id()
 	if not active_shots.has(shot_id):
@@ -2690,9 +2804,20 @@ func _on_projectile_body_entered(body: Node, projectile: RigidBody3D) -> void:
 	var shot: Dictionary = active_shots[shot_id]
 	var displacement: Vector3 = projectile.global_position - shot.origin
 	var result := "IMPACT • %0.1f M • X %+0.1f M" % [-displacement.z, displacement.x]
+	var gate_calculation: Dictionary = {}
 	if body.is_in_group("collision_test_gates"):
 		var gate_distance_km := float(body.get_meta("gate_distance_m", roundi(-displacement.z))) / 1000.0
-		result = "GATE CONTACT • %0.1f KM • IMPACT TEST" % gate_distance_km
+		gate_calculation = _gate_penetration_estimate(shot.design, projectile.linear_velocity.length(), projectile.linear_velocity)
+		if bool(gate_calculation.perforates):
+			result = "GATE PERFORATED • %0.1f KM • %s %0.0f MM / %0.0f MM • EXIT %0.0f M/S" % [
+				gate_distance_km, str(gate_calculation.material).to_upper(),
+				float(gate_calculation.thickness_mm), float(gate_calculation.penetration_mm), float(gate_calculation.exit_speed)
+			]
+		else:
+			result = "GATE STOP • %0.1f KM • %s • DEPTH %0.0f / %0.0f MM" % [
+				gate_distance_km, str(gate_calculation.material).to_upper(),
+				float(gate_calculation.penetration_mm), float(gate_calculation.thickness_mm) / maxf(absf(projectile.linear_velocity.normalized().dot(Vector3.FORWARD)), 0.15)
+			]
 	elif body.is_in_group("range_targets"):
 		result = "TARGET HIT • %0.1f M • X %+0.1f M" % [-displacement.z, displacement.x]
 	status_label.text = "SHOT %02d  •  %s" % [shot.number, result]
@@ -2704,6 +2829,30 @@ func _on_projectile_body_entered(body: Node, projectile: RigidBody3D) -> void:
 	var impact_speed := projectile.linear_velocity.length()
 	var impact_position := projectile.global_position - impact_normal * impact_radius
 	_spawn_impact_splash(impact_position, impact_normal, shot.design, impact_speed)
+	if body.is_in_group("collision_test_gates") and bool(gate_calculation.get("perforates", false)):
+		var gate_log: Array = shot.get("gate_log", [])
+		gate_log.append("%s %0.0f MM: %0.0f MM PENETRATION, %0.0f M/S EXIT" % [
+			str(gate_calculation.material).to_upper(), float(gate_calculation.thickness_mm),
+			float(gate_calculation.penetration_mm), float(gate_calculation.exit_speed)
+		])
+		shot["gate_log"] = gate_log
+		var gate_body := body as PhysicsBody3D
+		var gate_node := body as Node3D
+		if is_instance_valid(gate_body):
+			projectile.add_collision_exception_with(gate_body)
+		if is_instance_valid(gate_node):
+			projectile.global_position = gate_node.global_position + incoming * (float(gate_calculation.thickness_mm) / 1000.0 + float(shot.design.get("diameter", 0.18)) + 0.15)
+		projectile.linear_velocity = incoming * float(gate_calculation.exit_speed)
+		projectile.sleeping = false
+		status_label.text = "SHOT %02d  •  %s" % [shot.number, result]
+		analysis_label.text = "%s\nENERGY IN %0.2f MJ  •  PLATE WORK %0.2f MJ\nPENETRATION %0.0f MM  •  EXIT %0.0f M/S" % [
+			result, float(gate_calculation.kinetic_energy_mj), float(gate_calculation.required_energy_mj),
+			float(gate_calculation.penetration_mm), float(gate_calculation.exit_speed)
+		]
+		active_shots[shot_id] = shot
+		return
+	if body.is_in_group("collision_test_gates") and not gate_calculation.is_empty():
+		result += " • %0.2f MJ / %0.2f MJ" % [float(gate_calculation.kinetic_energy_mj), float(gate_calculation.required_energy_mj)]
 	var impact_atmosphere := _atmosphere_state(projectile.global_position.y)
 	var impact_mach := impact_speed / maxf(float(impact_atmosphere.sound_speed), 1.0)
 	var final_samples: Array = shot.samples
@@ -2731,7 +2880,7 @@ func _finish_shot(shot: Dictionary, projectile: RigidBody3D, outcome: String, im
 	if sample_copy.is_empty() or absf(float(sample_copy.back().time) - terminal_time) > 0.001:
 		sample_copy.append({"time": terminal_time, "position": projectile.global_position, "rotation": projectile.global_transform.basis.get_rotation_quaternion(), "velocity": projectile.linear_velocity, "mach": impact_speed / maxf(float(final_atmosphere.sound_speed), 1.0), "spin_rpm": final_spin, "q": 0.5 * float(final_atmosphere.density) * impact_speed * impact_speed})
 	var summary := {
-		"shot": int(shot.number), "outcome": outcome, "range": maxf(-displacement.z, 0.0), "offset_x": displacement.x,
+		"shot": int(shot.number), "outcome": outcome, "gate_log": shot.get("gate_log", []), "range": maxf(-displacement.z, 0.0), "offset_x": displacement.x,
 		"time": float(shot.time), "apex": float(shot.max_height), "impact_speed": impact_speed,
 		"impact_mach": impact_speed / maxf(float(atmosphere.sound_speed), 1.0), "spin_rpm": maxf(final_spin, float(shot.get("peak_spin_rpm", 0.0))),
 		"mass": float(design.mass), "diameter": float(design.diameter), "peak_mach": float(shot.get("peak_mach", 0.0)),
