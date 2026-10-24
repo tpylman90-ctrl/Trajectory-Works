@@ -7,6 +7,7 @@ from mathutils import Matrix, Vector
 
 ROOT = Path(__file__).resolve().parents[2]
 OUTPUT = ROOT / "assets" / "generated" / "trajectory_range.glb"
+HDRI_OUTPUT = ROOT / "assets" / "generated" / "twilight_range.hdr"
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import build_cannon as common
 
@@ -35,6 +36,7 @@ def cable_run(name, points, radius, mat):
 def add_launch_deck(mats):
     dark, steel, blue, enamel, screen, amber, copper = mats[:7]
     concrete = mats[7]
+    hazard = mats[8]
     # A wider poured pad leaves a visible concrete lip around the raised steel skid.
     box("Launch pad | poured reinforced concrete plinth", (0.0, 0.035, 0.15), (6.35, 0.17, 8.35), concrete, 0.12)
     for x in (-2.75, 2.75):
@@ -44,6 +46,7 @@ def add_launch_deck(mats):
     box("Launch deck | structural foundation", (0.0, 0.12, 0.15), (5.2, 0.24, 7.2), dark, 0.15)
     box("Launch deck | armored top plate", (0.0, 0.255, 0.15), (4.82, 0.045, 6.84), enamel, 0.085)
     for side in (-1, 1):
+        box("Launch deck | worn hazard boundary", (side * 1.98, 0.284, -2.95), (0.48, 0.018, 0.82), hazard, 0.012)
         box("Launch deck | side armor skirt", (side * 2.48, 0.11, 0.15), (0.22, 0.28, 6.82), blue, 0.055)
         box("Launch deck | amber edge tracer", (side * 2.34, 0.283, 0.15), (0.060, 0.025, 6.35), amber, 0.014)
         box("Launch deck | cyan inset tracer", (side * 2.22, 0.281, 0.15), (0.035, 0.022, 6.12), screen, 0.008)
@@ -69,8 +72,7 @@ def add_launch_deck(mats):
         for x in range(-8, 9):
             box("Launch deck | grate rib", (x * 0.22, 0.296, z + 0.15), (0.025, 0.012, 0.54), steel, 0.006)
         if index in (0, 6):
-            for stripe in range(5):
-                box("Launch deck | hazard dash", (-1.35 + stripe * 0.17, 0.298, z + 0.15), (0.10, 0.014, 0.48), amber, 0.008)
+            box("Launch deck | worn hazard panel", (0.0, 0.298, z + 0.15), (1.05, 0.014, 0.48), hazard, 0.008)
 
 
 def add_access_stairs(mats):
@@ -235,7 +237,69 @@ def add_equipment_crates(mats):
                 common.fastener("Field crate | lid fastener", (x + side * scale * 0.55, scale * 1.08, z + fore * scale * 0.32), (0.0, 1.0, 0.0), 0.035, copper)
 
 
+def bake_twilight_panorama():
+    # A small 2:1 linear HDR panorama supplies image-based ambient and reflection light.
+    width, height = 512, 256
+    image = bpy.data.images.new("Trajectory Works | baked twilight HDRI", width=width, height=height, alpha=False, float_buffer=True)
+    pixels = []
+    for y in range(height):
+        v = y / max(1, height - 1)
+        for x in range(width):
+            u = x / width
+            horizon = math.exp(-((v - 0.52) / 0.17) ** 2)
+            cloud = 0.5 + 0.5 * math.sin(u * math.tau * 7.0 + math.sin(v * math.tau * 3.0) * 1.4)
+            cloud *= 0.5 + 0.5 * math.sin(u * math.tau * 2.0 - v * math.tau * 5.0)
+            upper = max(0.0, min(1.0, 1.0 - v))
+            base = (0.025 + upper * 0.075 + horizon * 0.035 * cloud,
+                    0.038 + upper * 0.090 + horizon * 0.020 * cloud,
+                    0.070 + upper * 0.115 + horizon * 0.018 * cloud)
+            warm_horizon = math.exp(-((v - 0.50) / 0.055) ** 2)
+            # Sparse amber/cyan fixture bands brighten the environment for metal reflections.
+            lamps = max(0.0, math.sin(u * math.tau * 18.0)) ** 42
+            lamp_band = math.exp(-((v - 0.49) / 0.012) ** 2) * lamps
+            pixels.extend((base[0] + 0.11 * warm_horizon + 1.8 * lamp_band,
+                           base[1] + 0.035 * warm_horizon + 1.05 * lamp_band,
+                           base[2] + 0.018 * warm_horizon + 0.62 * lamp_band, 1.0))
+    image.pixels.foreach_set(pixels)
+    HDRI_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+    image.filepath_raw = str(HDRI_OUTPUT)
+    image.file_format = "HDR"
+    image.save()
+    print("Baked twilight panorama %s" % HDRI_OUTPUT)
+
+
+def baked_hazard_material():
+    # One small packed base-color texture provides hazard paint and chipped edges.
+    size = 256
+    image = bpy.data.images.new("Range | baked worn hazard stripes", width=size, height=size, alpha=False)
+    image.colorspace_settings.name = "sRGB"
+    pixels = []
+    rng = __import__("random").Random(7319)
+    for y in range(size):
+        for x in range(size):
+            stripe = ((x + y) // 34) % 2 == 0
+            base = (0.94, 0.34, 0.055) if stripe else (0.025, 0.040, 0.048)
+            wear = rng.random() < 0.012 or (stripe and rng.random() < 0.008)
+            shade = 0.36 if wear else 0.96 + 0.04 * math.sin(y * 0.11)
+            pixels.extend((base[0] * shade, base[1] * shade, base[2] * shade, 1.0))
+    image.pixels.foreach_set(pixels)
+    image.pack()
+    mat = bpy.data.materials.new("Range | baked worn hazard paint")
+    mat.diffuse_color = (0.94, 0.34, 0.055, 1.0)
+    mat.use_nodes = True
+    nodes = mat.node_tree.nodes
+    shader = nodes.get("Principled BSDF")
+    shader.inputs["Base Color"].default_value = (0.94, 0.34, 0.055, 1.0)
+    shader.inputs["Metallic"].default_value = 0.14
+    shader.inputs["Roughness"].default_value = 0.62
+    texture = nodes.new("ShaderNodeTexImage")
+    texture.image = image
+    mat.node_tree.links.new(texture.outputs["Color"], shader.inputs["Base Color"])
+    return mat
+
+
 def build():
+    bake_twilight_panorama()
     bpy.ops.object.select_all(action="SELECT")
     bpy.ops.object.delete(use_global=False)
     dark = common.material("Range | blackened structural steel", (0.025, 0.045, 0.057), 0.78, 0.48)
@@ -246,7 +310,8 @@ def build():
     amber = common.material("Range | amber hazard light", (1.0, 0.29, 0.045), 0.26, 0.24, (0.95, 0.16, 0.015))
     copper = common.material("Range | exposed copper alloy", (0.65, 0.22, 0.095), 0.74, 0.30)
     concrete = common.material("Launch pad | weathered concrete", (0.19, 0.22, 0.23), 0.04, 0.86)
-    mats = (dark, steel, blue, enamel, screen, amber, copper, concrete)
+    hazard = baked_hazard_material()
+    mats = (dark, steel, blue, enamel, screen, amber, copper, concrete, hazard)
     add_launch_deck(mats)
     add_access_stairs(mats)
     add_console(mats)
