@@ -62,6 +62,13 @@ var target_distance_picker: OptionButton
 var target_distance_label: Label
 var active_target: Node3D
 var target_distance_m := 2000
+var collision_gate_distance_picker: OptionButton
+var collision_gate_button: Button
+var collision_gate_enabled := false
+var collision_gate_distance_m := 2000
+var collision_gate_shapes: Array[CollisionShape3D] = []
+var collision_gate_visuals: Array[MeshInstance3D] = []
+var collision_gate_distances: Array[int] = []
 var projectile_camera_button: Button
 var projectile_camera_enabled := false
 var followed_projectile: RigidBody3D
@@ -415,8 +422,67 @@ func _build_range() -> void:
 			_add_box(self, Vector3(side * 8.0, 9.98, -distance), Vector3(0.24, 0.06, 0.26), Color(1.0, 0.36, 0.12), 0.08, 0.36)
 		_add_box(self, Vector3(0.0, 10.02, -distance), Vector3(16.0, 0.16, 0.22), Color(0.12, 0.20, 0.24), 0.36, 0.5)
 		_add_box(self, Vector3(0.0, 10.12, -distance), Vector3(3.2, 0.035, 0.25), Color(0.12, 0.84, 0.98), 0.04, 0.28)
+	_build_collision_test_gates()
 	# Keep one selectable target on the lane so the player can place it beyond a long shot.
 	active_target = _add_target(Vector3(0.0, 3.2, -float(target_distance_m)), 2.5)
+
+
+func _build_collision_test_gates() -> void:
+	var gate_material := StandardMaterial3D.new()
+	gate_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	gate_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	gate_material.albedo_color = Color(0.08, 0.64, 0.80, 0.20)
+	gate_material.emission_enabled = true
+	gate_material.emission = Color(0.08, 0.72, 0.94)
+	gate_material.emission_energy_multiplier = 1.0
+	for distance in range(2000, int(RANGE_LENGTH) + 1, 2000):
+		var gate := StaticBody3D.new()
+		gate.name = "ImpactTestGate_%dM" % distance
+		gate.add_to_group("collision_test_gates")
+		gate.set_meta("gate_distance_m", distance)
+		gate.position = Vector3(0.0, 5.0, -float(distance))
+		var collision := CollisionShape3D.new()
+		var collision_box := BoxShape3D.new()
+		collision_box.size = Vector3(18.0, 10.0, 0.16)
+		collision.shape = collision_box
+		collision.disabled = true
+		gate.add_child(collision)
+		var field := MeshInstance3D.new()
+		field.name = "InactiveImpactField"
+		var field_box := BoxMesh.new()
+		field_box.size = Vector3(18.0, 10.0, 0.055)
+		field.mesh = field_box
+		field.material_override = gate_material
+		field.visible = false
+		gate.add_child(field)
+		add_child(gate)
+		collision_gate_shapes.append(collision)
+		collision_gate_visuals.append(field)
+		collision_gate_distances.append(distance)
+
+
+func _on_collision_gate_distance_selected(index: int) -> void:
+	if not is_instance_valid(collision_gate_distance_picker):
+		return
+	collision_gate_distance_m = int(collision_gate_distance_picker.get_item_text(index).trim_suffix(" M"))
+	_update_collision_gate_state()
+
+
+func _toggle_collision_gate() -> void:
+	collision_gate_enabled = not collision_gate_enabled
+	_update_collision_gate_state()
+	if is_instance_valid(status_label):
+		status_label.text = "IMPACT GATE TEST  •  %s" % ("ARMED" if collision_gate_enabled else "SAFE")
+
+
+func _update_collision_gate_state() -> void:
+	for gate_index in collision_gate_shapes.size():
+		var selected := collision_gate_distances[gate_index] == collision_gate_distance_m
+		var active := collision_gate_enabled and selected
+		collision_gate_shapes[gate_index].set_deferred("disabled", not active)
+		collision_gate_visuals[gate_index].visible = active
+	if is_instance_valid(collision_gate_button):
+		collision_gate_button.text = "IMPACT GATE  •  ON" if collision_gate_enabled else "IMPACT GATE  •  OFF"
 
 
 func _add_ambient_steam() -> void:
@@ -1131,6 +1197,42 @@ func _build_hud() -> void:
 	edit_round_button.add_theme_color_override("font_color", Color(0.55, 0.94, 1.0))
 	edit_round_button.pressed.connect(_open_round_editor)
 	layer.add_child(edit_round_button)
+	collision_gate_distance_picker = OptionButton.new()
+	collision_gate_distance_picker.custom_minimum_size = Vector2(220.0, 42.0)
+	collision_gate_distance_picker.anchor_left = 1.0
+	collision_gate_distance_picker.anchor_top = 1.0
+	collision_gate_distance_picker.anchor_right = 1.0
+	collision_gate_distance_picker.anchor_bottom = 1.0
+	collision_gate_distance_picker.offset_left = -246.0
+	collision_gate_distance_picker.offset_top = -326.0
+	collision_gate_distance_picker.offset_right = -26.0
+	collision_gate_distance_picker.offset_bottom = -282.0
+	collision_gate_distance_picker.add_theme_stylebox_override("normal", selector_style)
+	collision_gate_distance_picker.add_theme_stylebox_override("hover", selector_style)
+	collision_gate_distance_picker.add_theme_color_override("font_color", Color(0.55, 0.94, 1.0))
+	for distance in range(2000, int(RANGE_LENGTH) + 1, 2000):
+		collision_gate_distance_picker.add_item("%d M" % distance)
+	collision_gate_distance_picker.select(0)
+	collision_gate_distance_picker.item_selected.connect(_on_collision_gate_distance_selected)
+	layer.add_child(collision_gate_distance_picker)
+	collision_gate_button = Button.new()
+	collision_gate_button.text = "IMPACT GATE  •  OFF"
+	collision_gate_button.custom_minimum_size = Vector2(220.0, 44.0)
+	collision_gate_button.anchor_left = 1.0
+	collision_gate_button.anchor_top = 1.0
+	collision_gate_button.anchor_right = 1.0
+	collision_gate_button.anchor_bottom = 1.0
+	collision_gate_button.offset_left = -246.0
+	collision_gate_button.offset_top = -276.0
+	collision_gate_button.offset_right = -26.0
+	collision_gate_button.offset_bottom = -230.0
+	collision_gate_button.add_theme_font_size_override("font_size", 16)
+	collision_gate_button.add_theme_stylebox_override("normal", button_normal)
+	collision_gate_button.add_theme_stylebox_override("hover", button_hover)
+	collision_gate_button.add_theme_color_override("font_color", Color(0.55, 0.94, 1.0))
+	collision_gate_button.pressed.connect(_toggle_collision_gate)
+	layer.add_child(collision_gate_button)
+	_update_collision_gate_state()
 	_on_speed_changed(speed_slider.value)
 	_on_elevation_changed(elevation_slider.value)
 	_on_wind_changed(wind_slider.value)
@@ -1651,6 +1753,8 @@ func _on_round_surface_changed(_value: float = 0.0) -> void:
 			tip_pattern = "ridges"
 		elif round_tip_surface_picker.selected == 2:
 			tip_pattern = "grooves"
+	if tip_pattern != "smooth" and is_instance_valid(round_tip_rib_depth_slider) and round_tip_rib_depth_slider.value <= 0.001:
+		round_tip_rib_depth_slider.set_value_no_signal(4.0)
 	current_projectile["tip_surface_pattern"] = tip_pattern
 	current_projectile["tip_rib_depth"] = round_tip_rib_depth_slider.value / 1000.0 if is_instance_valid(round_tip_rib_depth_slider) else 0.0
 	current_projectile["spiral_turns"] = round_spiral_turns_slider.value if is_instance_valid(round_spiral_turns_slider) else 0.0
@@ -1781,17 +1885,20 @@ func _round_ring_point(radius: float, z: float, angle: float, design: Dictionary
 	var base_radius := radius * pull
 	# Bound relief by local ring radius and feature count to keep adjacent mesh
 	# faces from folding over each other at tight tips or thin pulled stations.
-	var safe_rib_depth := minf(body_radius * 0.18, base_radius * 0.65 / float(rib_count))
-	var body_amplitude := minf(maxf(float(design.get("rib_depth", 0.0)), 0.0), safe_rib_depth)
-	var tip_amplitude := minf(maxf(float(design.get("tip_rib_depth", 0.0)), 0.0), safe_rib_depth)
+	var safe_body_rib_depth := minf(body_radius * 0.18, base_radius * 0.65 / float(rib_count))
+	var safe_tip_rib_depth := minf(body_radius * 0.24, base_radius * 0.90 / float(rib_count))
+	var body_amplitude := minf(maxf(float(design.get("rib_depth", 0.0)), 0.0), safe_body_rib_depth)
+	var tip_amplitude := minf(maxf(float(design.get("tip_rib_depth", 0.0)), 0.0), safe_tip_rib_depth)
 	var body_sign := 1.0 if pattern == "ridges" else -1.0
 	var tip_sign := 1.0 if tip_pattern == "ridges" else -1.0
 	var rib_offset := 0.0
 	if pattern != "smooth" and body_amplitude > 0.00001:
 		rib_offset += body_sign * body_amplitude * body_fade * cos(float(rib_count) * (angle - twist))
 	var tip_start := -float(design.length) * 0.5
-	var tip_fade_length := maxf(float(design.get("tip_length", body_radius * 1.35)) * 0.18, body_radius * 0.12)
-	var tip_fade := 1.0 - smoothstep(tip_start, tip_start + tip_fade_length, z)
+	var tip_length := maxf(nose_start - tip_start, 0.001)
+	var tip_lead_fade := minf(maxf(tip_length * 0.08, body_radius * 0.06), tip_length * 0.35)
+	var tip_base_fade := minf(maxf(tip_length * 0.10, body_radius * 0.08), tip_length * 0.35)
+	var tip_fade := smoothstep(tip_start, tip_start + tip_lead_fade, z) * (1.0 - smoothstep(nose_start - tip_base_fade, nose_start, z))
 	if tip_pattern != "smooth" and tip_amplitude > 0.00001:
 		rib_offset += tip_sign * tip_amplitude * tip_fade * cos(float(rib_count) * (angle - twist))
 	var scaled_radius := maxf(base_radius + rib_offset, radius * 0.12)
@@ -2583,12 +2690,15 @@ func _on_projectile_body_entered(body: Node, projectile: RigidBody3D) -> void:
 	var shot: Dictionary = active_shots[shot_id]
 	var displacement: Vector3 = projectile.global_position - shot.origin
 	var result := "IMPACT • %0.1f M • X %+0.1f M" % [-displacement.z, displacement.x]
-	if body.is_in_group("range_targets"):
+	if body.is_in_group("collision_test_gates"):
+		var gate_distance_km := float(body.get_meta("gate_distance_m", roundi(-displacement.z))) / 1000.0
+		result = "GATE CONTACT • %0.1f KM • IMPACT TEST" % gate_distance_km
+	elif body.is_in_group("range_targets"):
 		result = "TARGET HIT • %0.1f M • X %+0.1f M" % [-displacement.z, displacement.x]
 	status_label.text = "SHOT %02d  •  %s" % [shot.number, result]
 	var incoming := projectile.linear_velocity.normalized()
 	var impact_normal := Vector3.UP
-	if body.is_in_group("range_targets"):
+	if body.is_in_group("range_targets") or body.is_in_group("collision_test_gates"):
 		impact_normal = -incoming
 	var impact_radius := float(shot.design.get("diameter", 0.18)) * 0.5
 	var impact_speed := projectile.linear_velocity.length()
@@ -2600,6 +2710,8 @@ func _on_projectile_body_entered(body: Node, projectile: RigidBody3D) -> void:
 	final_samples.append({"time": shot.time, "position": projectile.global_position, "rotation": projectile.global_transform.basis.get_rotation_quaternion(), "velocity": projectile.linear_velocity, "mach": impact_mach, "spin_rpm": absf(projectile.angular_velocity.dot(-projectile.global_transform.basis.z.normalized())) * 60.0 / TAU, "q": 0.5 * float(impact_atmosphere.density) * impact_speed * impact_speed})
 	shot.samples = final_samples
 	_finish_shot(shot, projectile, result, impact_speed)
+	if body.is_in_group("collision_test_gates"):
+		projectile.freeze = true
 	analysis_label.text = "%s\nTIME %0.2f S  •  APEX %0.1f M\nIMPACT %0.0f M/S (MACH %0.2f)\nMASS %0.1f KG  •  Cd %0.2f" % [result, shot.time, shot.max_height, impact_speed, impact_mach, shot.design.mass, shot.design.cd]
 	active_shots.erase(shot_id)
 	if projectile == followed_projectile:
