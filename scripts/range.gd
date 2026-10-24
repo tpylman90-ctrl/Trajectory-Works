@@ -221,50 +221,21 @@ func _build_world() -> void:
 	var world := WorldEnvironment.new()
 	var environment := Environment.new()
 	environment.background_mode = Environment.BG_SKY
-	environment.sky = Sky.new()
-	var sky_shader := Shader.new()
-	sky_shader.code = """shader_type sky;
-uniform vec3 sky_top : source_color = vec3(0.012, 0.022, 0.052);
-uniform vec3 sky_horizon : source_color = vec3(0.12, 0.16, 0.23);
-uniform vec3 cloud_color : source_color = vec3(0.19, 0.22, 0.29);
-float hash21(vec2 p) {
-	p = fract(p * vec2(123.34, 456.21));
-	p += dot(p, p + 45.32);
-	return fract(p.x * p.y);
-}
-float noise2d(vec2 p) {
-	vec2 i = floor(p);
-	vec2 f = fract(p);
-	f = f * f * (3.0 - 2.0 * f);
-	float a = hash21(i);
-	float b = hash21(i + vec2(1.0, 0.0));
-	float c = hash21(i + vec2(0.0, 1.0));
-	float d = hash21(i + vec2(1.0, 1.0));
-	return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
-}
-void sky() {
-	vec3 direction = normalize(EYEDIR);
-	float elevation = clamp(direction.y * 0.5 + 0.5, 0.0, 1.0);
-	vec3 base = mix(sky_horizon, sky_top, smoothstep(0.12, 0.94, elevation));
-	vec2 cloud_uv = direction.xz * 18.0 / max(direction.y + 0.32, 0.18);
-	float cloud_shape = noise2d(cloud_uv * 0.22) * 0.68
-		+ noise2d(cloud_uv * 0.72 + vec2(8.3, 2.7)) * 0.32;
-	float cloud_cover = smoothstep(0.37, 0.68, cloud_shape);
-	float cloud_band = smoothstep(-0.04, 0.24, direction.y) * (1.0 - smoothstep(0.58, 0.88, direction.y));
-	float lower_atmosphere = 1.0 - smoothstep(-0.10, 0.10, direction.y);
-	base = mix(vec3(0.055, 0.085, 0.11), base, 1.0 - lower_atmosphere);
-	base = mix(base, cloud_color, cloud_cover * cloud_band * 0.82);
-	float dusk_glow = pow(1.0 - clamp(abs(direction.y), 0.0, 1.0), 7.0) * (1.0 - cloud_cover * 0.72);
-	base += vec3(0.085, 0.032, 0.012) * dusk_glow;
-	COLOR = base;
-}
-"""
-	var sky_material := ShaderMaterial.new()
-	sky_material.shader = sky_shader
-	environment.sky.sky_material = sky_material
+	var sky := Sky.new()
+	var panorama_material := PanoramaSkyMaterial.new()
+	var panorama_path := "res://assets/generated/twilight_range.hdr"
+	if ResourceLoader.exists(panorama_path):
+		panorama_material.panorama = load(panorama_path) as Texture2D
+		panorama_material.energy_multiplier = 0.78
+		sky.sky_material = panorama_material
+	else:
+		push_warning("Twilight HDR panorama is missing; using the built-in dusk sky.")
+		sky.sky_material = ProceduralSkyMaterial.new()
+	environment.sky = sky
+	environment.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 	environment.ambient_light_color = Color(0.24, 0.31, 0.43)
-	environment.ambient_light_energy = 0.46
+	environment.ambient_light_energy = 0.36
 	environment.fog_enabled = true
 	environment.fog_light_color = Color(0.095, 0.13, 0.19)
 	# Keep the 2 km instrumentation visible while preserving a soft distance haze.
@@ -298,7 +269,25 @@ void sky() {
 	sun.light_color = Color(1.0, 0.55, 0.34)
 	sun.light_energy = 0.62
 	sun.shadow_enabled = true
+	sun.directional_shadow_max_distance = 90.0
 	add_child(sun)
+	# Two small, shadowless practical lights let the pressure vapor pick up the range colors.
+	var amber_bounce := OmniLight3D.new()
+	amber_bounce.name = "Launcher amber service light"
+	amber_bounce.position = Vector3(0.72, 0.95, 0.35)
+	amber_bounce.light_color = Color(1.0, 0.31, 0.10)
+	amber_bounce.light_energy = 0.55
+	amber_bounce.omni_range = 4.2
+	amber_bounce.shadow_enabled = false
+	add_child(amber_bounce)
+	var cyan_bounce := OmniLight3D.new()
+	cyan_bounce.name = "Launcher cyan instrument light"
+	cyan_bounce.position = Vector3(-0.72, 1.12, 0.35)
+	cyan_bounce.light_color = Color(0.10, 0.68, 1.0)
+	cyan_bounce.light_energy = 0.42
+	cyan_bounce.omni_range = 4.0
+	cyan_bounce.shadow_enabled = false
+	add_child(cyan_bounce)
 
 	camera = Camera3D.new()
 	camera.fov = 43.0
@@ -668,9 +657,12 @@ func _create_steam_emitter(parent: Node3D, at: Vector3, particle_count: int) -> 
 	var puff_material := StandardMaterial3D.new()
 	puff_material.albedo_color = Color(0.72, 0.82, 0.88, 0.20)
 	puff_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	puff_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	puff_material.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+	puff_material.vertex_color_use_as_albedo = true
 	puff_material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-	puff_material.roughness = 1.0
+	puff_material.roughness = 0.92
+	puff_material.metallic = 0.0
+	puff_material.specular = 0.12
 	puff.material = puff_material
 	particles.draw_pass_1 = puff
 	parent.add_child(particles)
@@ -1177,6 +1169,24 @@ func _stop_slow_replay() -> void:
 func _build_hud() -> void:
 	var layer := CanvasLayer.new()
 	add_child(layer)
+	var vignette := ColorRect.new()
+	vignette.name = "Subtle screen-space lens vignette"
+	vignette.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	vignette.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var vignette_shader := Shader.new()
+	vignette_shader.code = """shader_type canvas_item;
+void fragment() {
+	float aspect = SCREEN_PIXEL_SIZE.y / SCREEN_PIXEL_SIZE.x;
+	vec2 centered = (UV - vec2(0.5)) * vec2(aspect, 1.0);
+	float radius = length(centered);
+	float edge = smoothstep(0.40, 0.99, radius);
+	COLOR = vec4(vec3(0.004, 0.010, 0.018), edge * 0.24);
+}
+"""
+	var vignette_material := ShaderMaterial.new()
+	vignette_material.shader = vignette_shader
+	vignette.material = vignette_material
+	layer.add_child(vignette)
 	range_hud_panel = PanelContainer.new()
 	var panel := range_hud_panel
 	panel.position = Vector2(26.0, 22.0)
