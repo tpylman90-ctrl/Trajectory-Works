@@ -83,6 +83,7 @@ jobs:
         run: |
           test -s assets/generated/trajectory_cannon.glb
           test -s assets/generated/trajectory_range.glb
+          test -s assets/generated/twilight_range.hdr
 
       - name: Validate and import Godot project
         run: |
