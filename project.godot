@@ -23,6 +23,10 @@ fire={
 "events": []
 }
 
+[physics]
+3d/default_gravity=9.80665
+3d/default_gravity_vector=Vector3(0, -1, 0)
+
 [rendering]
 
 renderer/rendering_method="mobile"

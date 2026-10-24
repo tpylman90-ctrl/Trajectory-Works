@@ -2046,14 +2046,14 @@ func _update_projectile_camera(projectile: RigidBody3D) -> void:
 		return
 	var velocity := projectile.linear_velocity
 	var forward := velocity.normalized() if velocity.length_squared() > 1.0 else -projectile.global_transform.basis.z.normalized()
-	# Keep the chase view attached to the shot without pitching straight into empty sky.
-	# A slight downward bias preserves the course and horizon while the projectile remains in frame.
-	var view_forward := Vector3(forward.x, clampf(forward.y * 0.34 - 0.08, -0.35, 0.18), forward.z).normalized()
+	# Follow the true velocity vector so climbs and gravity-driven descent stay visible.
+	var view_forward := forward
 	var altitude := maxf(projectile.global_position.y, 0.0)
 	camera.far = clampf(110000.0 + altitude * 24.0, 110000.0, 15000000.0)
 	camera.fov = 72.0
 	camera.global_position = projectile.global_position - forward * 1.8 + Vector3.UP * 0.58
-	camera.look_at(projectile.global_position + view_forward * 35.0, Vector3.UP)
+	var camera_up := Vector3.UP if absf(view_forward.dot(Vector3.UP)) < 0.98 else Vector3.FORWARD
+	camera.look_at(projectile.global_position + view_forward * 35.0, camera_up)
 
 
 func _on_target_distance_selected(index: int) -> void:
@@ -2122,7 +2122,7 @@ func _fire_test_shot() -> void:
 	projectile.name = "TestProjectile_%02d" % shot_count
 	projectile.mass = float(design.mass)
 	projectile.linear_damp = 0.0
-	projectile.gravity_scale = 0.0
+	projectile.gravity_scale = 1.0
 	projectile.angular_damp = 0.03 if design.shape == "custom" and str(design.get("surface_pattern", "smooth")) != "smooth" else 0.35
 	projectile.continuous_cd = true
 	projectile.contact_monitor = true
@@ -2346,7 +2346,9 @@ func _physics_process(_delta: float) -> void:
 			continue
 		var altitude := maxf(projectile.global_position.y, 0.0)
 		var local_gravity := AIR_GRAVITY * pow(EARTH_RADIUS / (EARTH_RADIUS + altitude), 2.0)
-		projectile.apply_central_force(Vector3.DOWN * projectile.mass * local_gravity)
+		# Use Godot's rigid-body gravity integration, scaled for altitude. This keeps
+		# the ballistic drop active through every physics tick without force buildup.
+		projectile.gravity_scale = local_gravity / AIR_GRAVITY
 		var velocity := projectile.linear_velocity
 		var base_wind := float(projectile.get_meta("wind_x"))
 		var altitude_shear := signf(base_wind) * minf(absf(base_wind) * 0.8, absf(base_wind) * clampf(altitude / 6000.0, 0.0, 0.8))
@@ -2426,6 +2428,15 @@ func _physics_process(_delta: float) -> void:
 			var samples: Array = shot.samples
 			samples.append({"time": shot.time, "position": projectile.global_position, "rotation": projectile.global_transform.basis.get_rotation_quaternion(), "velocity": projectile.linear_velocity, "mach": projectile.linear_velocity.length() / maxf(float(sample_atmosphere.sound_speed), 1.0), "spin_rpm": sample_spin, "q": 0.5 * float(sample_atmosphere.density) * projectile.linear_velocity.length_squared()})
 			shot.samples = samples
+			if projectile == last_projectile and is_instance_valid(analysis_label):
+				analysis_label.text = "IN FLIGHT  •  %0.1f KG / %0.0f MM / Cd %0.2f\nALTITUDE %0.1f M  •  VERTICAL SPEED %+0.1f M/S\nTIME %0.2f S" % [
+					float(shot.design.mass),
+					float(shot.design.diameter) * 1000.0,
+					float(shot.design.cd),
+					projectile.global_position.y,
+					projectile.linear_velocity.y,
+					float(shot.time)
+				]
 		if shot.time >= MAX_SHOT_FLIGHT_TIME or projectile.global_position.distance_squared_to(shot.origin) >= MAX_SHOT_TRAVEL * MAX_SHOT_TRAVEL:
 			_finish_shot(shot, projectile, "FLIGHT TIME LIMIT", projectile.linear_velocity.length())
 			_remove_projectile(projectile)
