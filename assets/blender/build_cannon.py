@@ -110,7 +110,7 @@ def finish(obj, mat, bevel=0.0):
     if bevel and obj.type == "MESH":
         mod = obj.modifiers.new("Soft machined radii", "BEVEL")
         mod.width = bevel
-        mod.segments = 3
+        mod.segments = 6
         mod.harden_normals = True
         normal = obj.modifiers.new("Weighted corner normals", "WEIGHTED_NORMAL")
         normal.keep_sharp = True
@@ -121,6 +121,47 @@ def smooth_surface(obj):
     if obj.type == "MESH":
         for polygon in obj.data.polygons:
             polygon.use_smooth = True
+    return obj
+
+
+def tube_path(name, points, radius, mat, radial_segments=12):
+    """Build a smooth, capped multi-ring tube for cables and braided leads."""
+    path = [Vector(point) for point in points]
+    if len(path) < 2:
+        return None
+    vertices = []
+    faces = []
+    for index, point in enumerate(path):
+        if index == 0:
+            tangent = (path[1] - point).normalized()
+        elif index == len(path) - 1:
+            tangent = (point - path[index - 1]).normalized()
+        else:
+            tangent = (path[index + 1] - path[index - 1]).normalized()
+        reference = Vector((0.0, 1.0, 0.0))
+        if abs(tangent.dot(reference)) > 0.90:
+            reference = Vector((1.0, 0.0, 0.0))
+        axis_a = tangent.cross(reference).normalized()
+        axis_b = tangent.cross(axis_a).normalized()
+        for segment in range(radial_segments):
+            angle = math.tau * segment / radial_segments
+            offset = (axis_a * math.cos(angle) + axis_b * math.sin(angle)) * radius
+            vertices.append(tuple(point + offset))
+    for ring in range(len(path) - 1):
+        for segment in range(radial_segments):
+            a = ring * radial_segments + segment
+            b = ring * radial_segments + (segment + 1) % radial_segments
+            faces.append((a, b, b + radial_segments, a + radial_segments))
+    faces.append(tuple(range(radial_segments - 1, -1, -1)))
+    last_ring = (len(path) - 1) * radial_segments
+    faces.append(tuple(last_ring + segment for segment in range(radial_segments)))
+    mesh = bpy.data.meshes.new(name + " | precision tube")
+    mesh.from_pydata(vertices, [], faces)
+    mesh.materials.append(mat)
+    mesh.update()
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(obj)
+    smooth_surface(obj)
     return obj
 
 
@@ -281,6 +322,46 @@ def build():
         cylinder_between("Emitter bus rail", (x, y, -2.02), (x, y, -6.05), 0.027, fastener_metal, vertices=24)
         for z in (-2.16, -3.20, -4.24, -5.28, -6.02):
             fastener("Bus rail clamp", (x, y, z), (math.cos(angle), math.sin(angle), 0.0), 0.022, copper)
+    # High-voltage umbilical runs follow the barrel's surface and stay inside
+    # the pivot assembly, so all cable ends remain seated as the barrel elevates.
+    for side in (-1, 1):
+        primary = []
+        tracer = []
+        for index in range(61):
+            t = index / 60.0
+            z = -1.42 - t * 4.52
+            angle = 0.30 + t * math.tau * 0.80
+            radial = 0.465
+            primary.append((side * radial * math.cos(angle), 1.17 + radial * math.sin(angle), z))
+            tracer.append((side * (radial + 0.048) * math.cos(angle), 1.17 + (radial + 0.048) * math.sin(angle), z))
+        tube_path("Barrel cable harness | insulated power lead", primary, 0.034, graphite, radial_segments=12)
+        tube_path("Barrel cable harness | copper signal tracer", tracer, 0.012, copper, radial_segments=8)
+        for index in range(6):
+            t = 0.10 + index * 0.15
+            z = -1.42 - t * 4.52
+            angle = 0.30 + t * math.tau * 0.80
+            x = side * 0.51 * math.cos(angle)
+            y = 1.17 + 0.51 * math.sin(angle)
+            cube("Barrel cable harness | titanium saddle clamp", (x, y, z), (0.105, 0.085, 0.11), blue_edge, 0.025)
+            fastener("Barrel cable harness | saddle bolt", (x, y + 0.045, z), (0.0, 1.0, 0.0), 0.018, fastener_metal)
+
+    # Fine copper braid spirals around the emitter jacket; raised cooling rings
+    # and individual locking tabs break up the long cylinder silhouette.
+    braid = []
+    for index in range(421):
+        t = index / 420.0
+        angle = t * math.tau * 7.0
+        z = -2.0 - t * 4.0
+        braid.append((math.cos(angle) * 0.431, 1.17 + math.sin(angle) * 0.431, z))
+    tube_path("Spiral cooling braid | continuous copper filament", braid, 0.014, copper, radial_segments=8)
+    for module_z in (-2.52, -3.56, -4.60, -5.64):
+        for offset in (-0.24, 0.0, 0.24):
+            torus("Emitter | raised machined cooling fin", (0.0, 1.17, module_z + offset), 0.424, 0.014, fastener_metal)
+        for side in (-1, 1):
+            for index in range(3):
+                x = side * (0.31 + index * 0.035)
+                cube("Emitter | recessed vent fin", (x, 1.17 + 0.27, module_z + (index - 1) * 0.15), (0.055, 0.085, 0.095), dark, 0.018)
+
 # Twin pressure accumulators and protective saddles.
     for side in (-1, 1):
         x = side * 1.04
@@ -375,6 +456,10 @@ def build():
         "Muzzle seal | graphite",
         "Muzzle crown | titanium",
         "Muzzle crown bolt",
+        "Barrel cable harness",
+        "Spiral cooling braid",
+        "Emitter | raised machined cooling fin",
+        "Emitter | recessed vent fin",
     )
     for obj in list(bpy.context.scene.objects):
         if obj is pivot or not obj.name.startswith(pivot_parts):
