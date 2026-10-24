@@ -69,6 +69,9 @@ var round_last_pointer := Vector2.ZERO
 var speed_slider: HSlider
 var elevation_slider: HSlider
 var wind_slider: HSlider
+var wind_shear_slider: HSlider
+var wind_shear_value_label: Label
+var environment_readout_label: Label
 var target_distance_picker: OptionButton
 var target_distance_label: Label
 var target_toggle_button: Button
@@ -103,6 +106,10 @@ var camera_dragging := false
 var active_shots: Dictionary = {}
 var barrel_pivot: Node3D
 var barrel_pivot_base_rotation := Vector3.ZERO
+var barrel_pivot_home_position := Vector3.ZERO
+var cannon_muzzle_particles: GPUParticles3D
+var cannon_muzzle_light: OmniLight3D
+var cannon_recoil_tween: Tween
 var ground_visual: MeshInstance3D
 var ground_mesh: PlaneMesh
 var ground_render_size := 100000.0
@@ -202,6 +209,7 @@ func _ready() -> void:
 	_add_ambient_steam()
 	_build_range()
 	_build_range_details()
+	_build_weather_station()
 	_build_range_assets()
 	current_projectile = PROJECTILE_TYPES[0].duplicate(true)
 	_load_saved_round()
@@ -340,6 +348,7 @@ func _build_cannon() -> void:
 			barrel_pivot = imported.find_child("ElevationPivot", true, false) as Node3D
 			if is_instance_valid(barrel_pivot):
 				barrel_pivot_base_rotation = barrel_pivot.rotation
+				barrel_pivot_home_position = barrel_pivot.position
 				barrel_pivot.set_meta("muzzle_offset", -7.24)
 			var mesh_points: Array[Vector3] = []
 			_collect_mesh_points(imported, Transform3D.IDENTITY, mesh_points)
@@ -354,6 +363,7 @@ func _build_cannon() -> void:
 				var looks_like_cannon := bounds.size.x > 1.5 and bounds.size.x < 4.0 and bounds.size.y > 0.9 and bounds.size.y < 3.2 and bounds.size.z > 6.0 and bounds.size.z < 10.0 and bounds.position.z < -5.5
 				if looks_like_cannon:
 					print("Using Blender cannon; imported bounds: ", bounds)
+					_build_cannon_fire_effect()
 					return
 			push_warning("Blender cannon orientation/scale is invalid; using the built-in cannon model. Imported bounds: %s" % str(_bounds_from_points(mesh_points)))
 			imported.queue_free()
@@ -370,6 +380,7 @@ func _build_cannon() -> void:
 	barrel_pivot = Node3D.new()
 	barrel_pivot.name = "ElevationPivot"
 	barrel_pivot.position = Vector3(0.0, 1.47, 0.18)
+	barrel_pivot_home_position = barrel_pivot.position
 	barrel_pivot.set_meta("muzzle_offset", -7.16)
 	barrel_pivot_base_rotation = Vector3.ZERO
 	cannon.add_child(barrel_pivot)
@@ -388,6 +399,82 @@ func _build_cannon() -> void:
 		_add_pipe(cannon, Vector3(side * 1.12, 0.45, -0.15), Vector3(side * 0.92, 0.78, -1.35), 0.075, Color(0.78, 0.39, 0.17))
 	_add_box(cannon, Vector3(0.0, 1.70, 0.12), Vector3(0.90, 0.16, 0.62), Color(0.12, 0.82, 0.95), 0.08, 0.24)
 	_add_box(cannon, Vector3(0.0, 0.30, -2.1), Vector3(1.15, 0.42, 1.0), Color(0.16, 0.21, 0.24), 0.14, 0.68)
+	_build_cannon_fire_effect()
+
+
+func _build_cannon_fire_effect() -> void:
+	if not is_instance_valid(barrel_pivot):
+		return
+	var muzzle_offset := float(barrel_pivot.get_meta("muzzle_offset", -7.16))
+	cannon_muzzle_particles = GPUParticles3D.new()
+	cannon_muzzle_particles.name = "Compressed gas muzzle plume"
+	cannon_muzzle_particles.position = Vector3(0.0, 0.0, muzzle_offset - 0.08)
+	cannon_muzzle_particles.amount = 56
+	cannon_muzzle_particles.lifetime = 0.42
+	cannon_muzzle_particles.one_shot = true
+	cannon_muzzle_particles.explosiveness = 0.96
+	cannon_muzzle_particles.randomness = 0.32
+	cannon_muzzle_particles.emitting = false
+	cannon_muzzle_particles.local_coords = false
+	cannon_muzzle_particles.visibility_aabb = AABB(Vector3(-16.0, -8.0, muzzle_offset - 22.0), Vector3(32.0, 16.0, 24.0))
+	var gas := ParticleProcessMaterial.new()
+	gas.direction = Vector3(0.0, 0.0, -1.0)
+	gas.spread = 20.0
+	gas.initial_velocity_min = 14.0
+	gas.initial_velocity_max = 34.0
+	gas.gravity = Vector3(0.0, -2.2, 0.0)
+	gas.damping_min = 7.0
+	gas.damping_max = 14.0
+	gas.scale_min = 0.07
+	gas.scale_max = 0.26
+	gas.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+	gas.emission_sphere_radius = 0.18
+	var plume_fade := Gradient.new()
+	plume_fade.offsets = PackedFloat32Array([0.0, 0.14, 0.55, 1.0])
+	plume_fade.colors = PackedColorArray([Color(1.0, 0.66, 0.32, 0.80), Color(0.82, 0.87, 0.88, 0.44), Color(0.49, 0.60, 0.67, 0.16), Color(0.36, 0.45, 0.52, 0.0)])
+	var plume_ramp := GradientTexture1D.new()
+	plume_ramp.gradient = plume_fade
+	gas.color_ramp = plume_ramp
+	cannon_muzzle_particles.process_material = gas
+	var gas_puff := SphereMesh.new()
+	gas_puff.radius = 0.22
+	gas_puff.height = 0.44
+	gas_puff.radial_segments = 8
+	gas_puff.rings = 4
+	var gas_material := StandardMaterial3D.new()
+	gas_material.albedo_color = Color.WHITE
+	gas_material.vertex_color_use_as_albedo = true
+	gas_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	gas_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	gas_material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	gas_material.roughness = 1.0
+	gas_puff.material = gas_material
+	cannon_muzzle_particles.draw_pass_1 = gas_puff
+	barrel_pivot.add_child(cannon_muzzle_particles)
+	cannon_muzzle_light = OmniLight3D.new()
+	cannon_muzzle_light.name = "Muzzle flash light"
+	cannon_muzzle_light.position = cannon_muzzle_particles.position
+	cannon_muzzle_light.light_color = Color(1.0, 0.52, 0.22)
+	cannon_muzzle_light.light_energy = 0.0
+	cannon_muzzle_light.omni_range = 18.0
+	cannon_muzzle_light.shadow_enabled = false
+	barrel_pivot.add_child(cannon_muzzle_light)
+
+
+func _play_cannon_fire_effect() -> void:
+	if is_instance_valid(cannon_recoil_tween):
+		cannon_recoil_tween.kill()
+	if is_instance_valid(barrel_pivot):
+		cannon_recoil_tween = create_tween()
+		cannon_recoil_tween.tween_property(barrel_pivot, "position", barrel_pivot_home_position + Vector3(0.0, 0.0, 0.34), 0.055).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		cannon_recoil_tween.tween_property(barrel_pivot, "position", barrel_pivot_home_position, 0.46).set_trans(Tween.TRANS_SPRING).set_ease(Tween.EASE_OUT)
+	if is_instance_valid(cannon_muzzle_particles):
+		cannon_muzzle_particles.restart()
+		cannon_muzzle_particles.emitting = true
+	if is_instance_valid(cannon_muzzle_light):
+		cannon_muzzle_light.light_energy = 7.5
+		var flash_fade := create_tween()
+		flash_fade.tween_property(cannon_muzzle_light, "light_energy", 0.0, 0.14).set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_OUT)
 
 
 func _collect_mesh_points(node: Node3D, parent_transform: Transform3D, points: Array[Vector3]) -> void:
@@ -1213,6 +1300,20 @@ func _build_hud() -> void:
 	wind_slider.value = 0.0
 	wind_slider.value_changed.connect(_on_wind_changed)
 	stack.add_child(wind_slider)
+	wind_shear_value_label = Label.new()
+	stack.add_child(wind_shear_value_label)
+	wind_shear_slider = HSlider.new()
+	wind_shear_slider.min_value = -10.0
+	wind_shear_slider.max_value = 10.0
+	wind_shear_slider.step = 0.25
+	wind_shear_slider.value = 0.0
+	wind_shear_slider.value_changed.connect(_on_wind_shear_changed)
+	stack.add_child(wind_shear_slider)
+	_on_wind_shear_changed(wind_shear_slider.value)
+	environment_readout_label = Label.new()
+	environment_readout_label.add_theme_color_override("font_color", Color(0.45, 0.82, 0.88))
+	stack.add_child(environment_readout_label)
+	_update_environment_readout()
 	analysis_label = Label.new()
 	analysis_label.text = "SHOT DATA  •  Awaiting launch"
 	analysis_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -2384,9 +2485,49 @@ func _on_elevation_changed(value: float) -> void:
 
 func _on_wind_changed(value: float) -> void:
 	if is_instance_valid(wind_value_label):
-		wind_value_label.text = "CROSSWIND  •  %+0.1f M/S" % value
+		wind_value_label.text = "SURFACE CROSSWIND  •  %+0.1f M/S" % value
 	if is_instance_valid(status_label):
-		status_label.text = "HYPERVELOCITY RANGE  •  CROSSWIND: %+0.1f M/S" % value
+		status_label.text = "HYPERVELOCITY RANGE  •  SURFACE WIND: %+0.1f M/S" % value
+
+
+func _on_wind_shear_changed(value: float) -> void:
+	if is_instance_valid(wind_shear_value_label):
+		wind_shear_value_label.text = "WIND SHEAR  •  %+0.1f M/S AT 10 KM" % value
+
+
+func _update_environment_readout() -> void:
+	if not is_instance_valid(environment_readout_label):
+		return
+	var state: Dictionary = _atmosphere_state(0.0)
+	environment_readout_label.text = "RANGE AIR  •  %0.1f C  /  %0.1f KPA  /  %0.3f KG/M³" % [float(state.temperature) - 273.15, float(state.pressure) / 1000.0, float(state.density)]
+
+
+func _build_weather_station() -> void:
+	var station := Node3D.new()
+	station.name = "Surface weather instrumentation"
+	station.position = Vector3(-12.5, 0.0, -28.0)
+	add_child(station)
+	_add_box(station, Vector3(0.0, 0.10, 0.0), Vector3(1.25, 0.20, 1.15), Color(0.07, 0.11, 0.14), 0.70, 0.46)
+	_add_cylinder(station, Vector3(0.0, 2.1, 0.0), 0.065, 4.0, Color(0.42, 0.51, 0.53), 0.72, 0.42)
+	_add_pipe(station, Vector3(-0.7, 0.35, 0.0), Vector3(0.0, 2.0, 0.0), 0.045, Color(0.56, 0.62, 0.62))
+	_add_pipe(station, Vector3(0.7, 0.35, 0.0), Vector3(0.0, 2.0, 0.0), 0.045, Color(0.56, 0.62, 0.62))
+	_add_pipe(station, Vector3(0.0, 0.35, 0.7), Vector3(0.0, 2.0, 0.0), 0.045, Color(0.56, 0.62, 0.62))
+	_add_box(station, Vector3(0.0, 2.35, 0.0), Vector3(0.48, 0.42, 0.34), Color(0.08, 0.22, 0.27), 0.62, 0.38)
+	_add_box(station, Vector3(0.0, 2.37, -0.19), Vector3(0.30, 0.23, 0.025), Color(0.08, 0.70, 0.82), 0.20, 0.24)
+	_add_cylinder(station, Vector3(0.0, 4.12, 0.0), 0.07, 0.24, Color(0.72, 0.42, 0.16), 0.68, 0.34)
+	_add_pipe(station, Vector3(-0.56, 4.15, 0.0), Vector3(0.56, 4.15, 0.0), 0.025, Color(0.72, 0.42, 0.16))
+	_add_pipe(station, Vector3(0.0, 4.15, -0.56), Vector3(0.0, 4.15, 0.56), 0.025, Color(0.72, 0.42, 0.16))
+	for cup in [Vector3(-0.48, 4.15, 0.0), Vector3(0.24, 4.15, -0.42), Vector3(0.24, 4.15, 0.42)]:
+		_add_cylinder(station, cup, 0.10, 0.07, Color(0.78, 0.82, 0.79), 0.72, 0.28)
+	_add_pipe(station, Vector3(0.0, 4.28, 0.0), Vector3(0.0, 4.60, 0.0), 0.025, Color(0.74, 0.49, 0.18))
+	_add_box(station, Vector3(0.0, 4.64, -0.16), Vector3(0.12, 0.36, 0.05), Color(0.90, 0.41, 0.12), 0.45, 0.38)
+	var station_light := OmniLight3D.new()
+	station_light.position = Vector3(0.0, 2.5, -0.28)
+	station_light.light_color = Color(0.12, 0.76, 0.92)
+	station_light.light_energy = 0.45
+	station_light.omni_range = 3.5
+	station_light.shadow_enabled = false
+	station.add_child(station_light)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -2511,10 +2652,12 @@ func _fire_test_shot() -> void:
 		followed_projectile = projectile
 	projectile.set_meta("design", design)
 	projectile.set_meta("wind_x", wind_slider.value)
+	projectile.set_meta("wind_shear_10km", wind_shear_slider.value)
 	var initial_atmosphere := _atmosphere_state(projectile.global_position.y)
 	var initial_spin := absf(projectile.angular_velocity.dot(-projectile.global_transform.basis.z.normalized())) * 60.0 / TAU
 	var initial_sample := {"time": 0.0, "position": projectile.global_position, "rotation": projectile.global_transform.basis.get_rotation_quaternion(), "velocity": projectile.linear_velocity, "mach": projectile.linear_velocity.length() / maxf(float(initial_atmosphere.sound_speed), 1.0), "spin_rpm": initial_spin, "q": 0.5 * float(initial_atmosphere.density) * projectile.linear_velocity.length_squared()}
-	active_shots[projectile.get_instance_id()] = {"body": projectile, "number": shot_count, "time": 0.0, "sample_timer": 0.0, "samples": [initial_sample], "max_height": projectile.global_position.y, "max_q": 0.0, "peak_mach": 0.0, "peak_spin_rpm": initial_spin, "origin": projectile.global_position, "design": design}
+	active_shots[projectile.get_instance_id()] = {"body": projectile, "number": shot_count, "time": 0.0, "sample_timer": 0.0, "samples": [initial_sample], "max_height": projectile.global_position.y, "max_q": 0.0, "peak_mach": 0.0, "peak_spin_rpm": initial_spin, "origin": projectile.global_position, "design": design, "surface_crosswind": wind_slider.value, "wind_shear_10km": wind_shear_slider.value}
+	_play_cannon_fire_effect()
 	analysis_label.text = "IN FLIGHT  •  %0.1f KG / %0.0f MM / Cd %0.2f" % [design.mass, design.diameter * 1000.0, design.cd]
 	# Shots remain active until impact; the long failsafe only cleans up runaway bodies.
 
@@ -2645,6 +2788,11 @@ func _local_gravity(altitude: float) -> float:
 	return AIR_GRAVITY * radius_ratio * radius_ratio
 
 
+func _wind_at_altitude(surface_crosswind: float, shear_at_10km: float, altitude: float) -> float:
+	var profile_fraction := clampf(maxf(altitude, 0.0) / 10000.0, 0.0, 1.0)
+	return surface_crosswind + shear_at_10km * profile_fraction
+
+
 func _dynamic_pressure(density: float, speed: float) -> float:
 	return 0.5 * maxf(density, 0.0) * speed * speed
 
@@ -2678,7 +2826,8 @@ func _physics_process(_delta: float) -> void:
 		var base_wind := float(projectile.get_meta("wind_x"))
 		# The range wind control is a steady crosswind so test shots remain repeatable.
 		# Variable gusts need a player-controlled turbulence setting before being added.
-		var wind_at_round := base_wind
+		var wind_shear_10km := float(projectile.get_meta("wind_shear_10km", 0.0))
+		var wind_at_round := _wind_at_altitude(base_wind, wind_shear_10km, altitude)
 		var relative_air_velocity := velocity - Vector3(wind_at_round, 0.0, 0.0)
 		var speed := relative_air_velocity.length()
 		if speed > 0.01:
