@@ -60,7 +60,13 @@ var elevation_slider: HSlider
 var wind_slider: HSlider
 var target_distance_picker: OptionButton
 var target_distance_label: Label
+var target_toggle_button: Button
+var target_score_label: Label
+var target_enabled := true
+var target_score := 0
+var target_hits := 0
 var active_target: Node3D
+var active_target_collision: CollisionShape3D
 var target_distance_m := 2000
 var collision_gate_distance_picker: OptionButton
 var collision_gate_material_picker: OptionButton
@@ -436,6 +442,8 @@ func _build_range() -> void:
 	_build_collision_test_gates()
 	# Keep one selectable target on the lane so the player can place it beyond a long shot.
 	active_target = _add_target(Vector3(0.0, 3.2, -float(target_distance_m)), 2.5)
+	active_target_collision = active_target.get_meta("target_hit_collision") as CollisionShape3D
+	_update_target_state()
 
 
 func _build_collision_test_gates() -> void:
@@ -1117,8 +1125,21 @@ func _build_hud() -> void:
 		projectile_picker.select(PROJECTILE_TYPES.size())
 	projectile_picker.item_selected.connect(_on_projectile_preset_selected)
 	stack.add_child(projectile_picker)
+	var target_row := HBoxContainer.new()
+	target_row.add_theme_constant_override("separation", 6)
+	stack.add_child(target_row)
 	target_distance_label = Label.new()
-	stack.add_child(target_distance_label)
+	target_distance_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	target_row.add_child(target_distance_label)
+	target_toggle_button = Button.new()
+	target_toggle_button.text = "TARGET  •  ON"
+	target_toggle_button.custom_minimum_size = Vector2(112.0, 34.0)
+	target_toggle_button.add_theme_font_size_override("font_size", 12)
+	target_toggle_button.add_theme_stylebox_override("normal", selector_style)
+	target_toggle_button.add_theme_stylebox_override("hover", selector_style)
+	target_toggle_button.add_theme_color_override("font_color", Color(0.55, 0.94, 1.0))
+	target_toggle_button.pressed.connect(_toggle_target)
+	target_row.add_child(target_toggle_button)
 	target_distance_picker = OptionButton.new()
 	target_distance_picker.add_theme_stylebox_override("normal", selector_style)
 	target_distance_picker.add_theme_stylebox_override("hover", selector_style)
@@ -1137,6 +1158,23 @@ func _build_hud() -> void:
 	target_distance_picker.item_selected.connect(_on_target_distance_selected)
 	stack.add_child(target_distance_picker)
 	_on_target_distance_selected(target_distance_picker.selected)
+	var score_panel := PanelContainer.new()
+	score_panel.anchor_left = 1.0
+	score_panel.anchor_top = 0.0
+	score_panel.anchor_right = 1.0
+	score_panel.anchor_bottom = 0.0
+	score_panel.offset_left = -254.0
+	score_panel.offset_top = 22.0
+	score_panel.offset_right = -26.0
+	score_panel.offset_bottom = 62.0
+	score_panel.add_theme_stylebox_override("panel", glass)
+	layer.add_child(score_panel)
+	target_score_label = Label.new()
+	target_score_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	target_score_label.add_theme_font_size_override("font_size", 15)
+	target_score_label.add_theme_color_override("font_color", Color(0.55, 0.94, 1.0))
+	score_panel.add_child(target_score_label)
+	_update_target_score_display()
 	speed_value_label = Label.new()
 	stack.add_child(speed_value_label)
 	speed_slider = HSlider.new()
@@ -2273,6 +2311,41 @@ func _update_projectile_camera(projectile: RigidBody3D) -> void:
 	camera.look_at(projectile.global_position + view_forward * 35.0, camera_up)
 
 
+func _toggle_target() -> void:
+	target_enabled = not target_enabled
+	_update_target_state()
+
+
+func _update_target_state() -> void:
+	if is_instance_valid(active_target):
+		active_target.visible = target_enabled
+	if is_instance_valid(active_target_collision):
+		active_target_collision.set_deferred("disabled", not target_enabled)
+	if is_instance_valid(target_toggle_button):
+		target_toggle_button.text = "TARGET  •  ON" if target_enabled else "TARGET  •  OFF"
+		target_toggle_button.add_theme_color_override("font_color", Color(0.55, 0.94, 1.0) if target_enabled else Color(1.0, 0.58, 0.30))
+
+
+func _update_target_score_display() -> void:
+	if is_instance_valid(target_score_label):
+		target_score_label.text = "SCORE %05d  •  HITS %02d" % [target_score, target_hits]
+
+
+func _score_target_hit(projectile: RigidBody3D) -> int:
+	if not is_instance_valid(active_target):
+		return 10
+	var local_hit := active_target.to_local(projectile.global_position)
+	var radial_offset := Vector2(local_hit.x, local_hit.y).length()
+	var radius := 2.5
+	if radial_offset <= radius * 0.15:
+		return 100
+	if radial_offset <= radius * 0.40:
+		return 50
+	if radial_offset <= radius * 0.76:
+		return 25
+	return 10
+
+
 func _on_target_distance_selected(index: int) -> void:
 	if not is_instance_valid(target_distance_picker):
 		return
@@ -2281,6 +2354,7 @@ func _on_target_distance_selected(index: int) -> void:
 		target_distance_label.text = "TARGET DISTANCE  •  %d M" % target_distance_m
 	if is_instance_valid(active_target):
 		active_target.position = Vector3(0.0, 3.2, -float(target_distance_m))
+	_update_target_state()
 
 
 func _on_speed_changed(value: float) -> void:
@@ -2819,7 +2893,11 @@ func _on_projectile_body_entered(body: Node, projectile: RigidBody3D) -> void:
 				float(gate_calculation.penetration_mm), float(gate_calculation.thickness_mm) / maxf(absf(projectile.linear_velocity.normalized().dot(Vector3.FORWARD)), 0.15)
 			]
 	elif body.is_in_group("range_targets"):
-		result = "TARGET HIT • %0.1f M • X %+0.1f M" % [-displacement.z, displacement.x]
+		var points := _score_target_hit(projectile)
+		target_score += points
+		target_hits += 1
+		_update_target_score_display()
+		result = "TARGET HIT • %d PTS • %0.1f M" % [points, -displacement.z]
 	status_label.text = "SHOT %02d  •  %s" % [shot.number, result]
 	var incoming := projectile.linear_velocity.normalized()
 	var impact_normal := Vector3.UP
@@ -2923,6 +3001,7 @@ func _add_target(at: Vector3, radius: float) -> Node3D:
 	hit_area.shape = hit_disc
 	hit_area.rotation.x = PI * 0.5
 	target_body.add_child(hit_area)
+	target.set_meta("target_hit_collision", hit_area)
 	target.add_child(target_body)
 	target.position = at
 	# Tall instrument stations stand on cross-braced towers, leaving the firing
