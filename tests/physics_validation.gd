@@ -14,9 +14,10 @@ func _initialize() -> void:
 	_check_layer_continuity(model)
 	_check_gravity(model)
 	_check_dynamic_pressure(model)
+	_check_wind_profile(model)
 	model.free()
 	if failures == 0:
-		print("Physics validation passed: atmosphere layers, continuity, gravity, and dynamic pressure.")
+		print("Physics validation passed: atmosphere layers, continuity, gravity, dynamic pressure, and wind shear.")
 		quit(0)
 	else:
 		printerr("Physics validation failed: %d check(s)." % failures)
@@ -73,6 +74,14 @@ func _check_gravity(model: Object) -> void:
 func _check_dynamic_pressure(model: Object) -> void:
 	_expect_close("dynamic pressure at 100 m/s", float(model.call("_dynamic_pressure", 1.225, 100.0)), 6125.0, 0.00001)
 	_expect_close("dynamic pressure scales with speed squared", float(model.call("_dynamic_pressure", 1.225, 200.0)), 24500.0, 0.00001)
+
+
+func _check_wind_profile(model: Object) -> void:
+	_expect_close("surface wind at ground", float(model.call("_wind_at_altitude", 3.0, 8.0, 0.0)), 3.0, 0.00001)
+	_expect_close("linear wind shear at 5 km", float(model.call("_wind_at_altitude", 3.0, 8.0, 5000.0)), 7.0, 0.00001)
+	_expect_close("full wind shear at 10 km", float(model.call("_wind_at_altitude", 3.0, 8.0, 10000.0)), 11.0, 0.00001)
+	_expect_close("wind profile clamps below ground", float(model.call("_wind_at_altitude", 3.0, 8.0, -100.0)), 3.0, 0.00001)
+	_expect_close("wind profile caps above 10 km", float(model.call("_wind_at_altitude", 3.0, 8.0, 25000.0)), 11.0, 0.00001)
 
 
 func _expect_close(label: String, actual: float, expected: float, tolerance: float) -> void:
