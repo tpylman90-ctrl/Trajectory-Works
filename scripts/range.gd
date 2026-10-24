@@ -940,7 +940,7 @@ func _update_review_text() -> void:
 	var gate_summary := ""
 	if not shot.get("gate_log", []).is_empty():
 		gate_summary = "\nGATE TEST  •  " + "  •  ".join(PackedStringArray(shot.gate_log))
-	review_summary.text = "%s  •  RANGE %0.0f M  •  TIME %0.2f S\nAPEX %0.0f M  •  IMPACT %0.0f M/S (MACH %0.2f)  •  SPIN %0.0f RPM\nMASS %0.2f KG  •  DIAMETER %0.0f MM  •  PEAK MACH %0.2f  •  MAX Q %0.1f KPA%s" % [shot.outcome, shot.range, shot.time, shot.apex, shot.impact_speed, shot.impact_mach, shot.spin_rpm, shot.mass, shot.diameter * 1000.0, shot.peak_mach, shot.max_q / 1000.0, gate_summary]
+	review_summary.text = "%s  •  RANGE %0.0f M  •  TIME %0.2f S\nAPEX %0.0f M  •  IMPACT %0.0f M/S (MACH %0.2f)  •  SPIN %0.0f RPM\nMASS %0.2f KG  •  DIAMETER %0.0f MM  •  PEAK MACH %0.2f  •  MAX Q %0.1f KPA\nWIND %+0.1f M/S  •  10 KM SHEAR %+0.1f M/S  •  AIR %0.1f C / %0.1f KPA / %0.3f KG/M³%s" % [shot.outcome, shot.range, shot.time, shot.apex, shot.impact_speed, shot.impact_mach, shot.spin_rpm, shot.mass, shot.diameter * 1000.0, shot.peak_mach, shot.max_q / 1000.0, shot.surface_crosswind, shot.wind_shear_10km, shot.air_temperature_c, shot.air_pressure_kpa, shot.air_density, gate_summary]
 	if shot_history.size() > 1:
 		var previous: Dictionary = shot_history[shot_history.size() - 2]
 		review_compare.text = "VS SHOT %02d  •  RANGE %+0.1f M  •  APEX %+0.1f M  •  IMPACT SPEED %+0.1f M/S" % [previous.shot, float(shot.range) - float(previous.range), float(shot.apex) - float(previous.apex), float(shot.impact_speed) - float(previous.impact_speed)]
@@ -2656,7 +2656,7 @@ func _fire_test_shot() -> void:
 	var initial_atmosphere := _atmosphere_state(projectile.global_position.y)
 	var initial_spin := absf(projectile.angular_velocity.dot(-projectile.global_transform.basis.z.normalized())) * 60.0 / TAU
 	var initial_sample := {"time": 0.0, "position": projectile.global_position, "rotation": projectile.global_transform.basis.get_rotation_quaternion(), "velocity": projectile.linear_velocity, "mach": projectile.linear_velocity.length() / maxf(float(initial_atmosphere.sound_speed), 1.0), "spin_rpm": initial_spin, "q": 0.5 * float(initial_atmosphere.density) * projectile.linear_velocity.length_squared()}
-	active_shots[projectile.get_instance_id()] = {"body": projectile, "number": shot_count, "time": 0.0, "sample_timer": 0.0, "samples": [initial_sample], "max_height": projectile.global_position.y, "max_q": 0.0, "peak_mach": 0.0, "peak_spin_rpm": initial_spin, "origin": projectile.global_position, "design": design, "surface_crosswind": wind_slider.value, "wind_shear_10km": wind_shear_slider.value}
+	active_shots[projectile.get_instance_id()] = {"body": projectile, "number": shot_count, "time": 0.0, "sample_timer": 0.0, "samples": [initial_sample], "max_height": projectile.global_position.y, "max_q": 0.0, "peak_mach": 0.0, "peak_spin_rpm": initial_spin, "origin": projectile.global_position, "design": design, "surface_crosswind": wind_slider.value, "wind_shear_10km": wind_shear_slider.value, "air_density": float(initial_atmosphere.density), "air_pressure_kpa": float(initial_atmosphere.pressure) / 1000.0, "air_temperature_c": float(initial_atmosphere.temperature) - 273.15}
 	_play_cannon_fire_effect()
 	analysis_label.text = "IN FLIGHT  •  %0.1f KG / %0.0f MM / Cd %0.2f" % [design.mass, design.diameter * 1000.0, design.cd]
 	# Shots remain active until impact; the long failsafe only cleans up runaway bodies.
@@ -3145,6 +3145,7 @@ func _finish_shot(shot: Dictionary, projectile: RigidBody3D, outcome: String, im
 		"time": float(shot.time), "apex": float(shot.max_height), "impact_speed": impact_speed,
 		"impact_mach": impact_speed / maxf(float(atmosphere.sound_speed), 1.0), "spin_rpm": maxf(final_spin, float(shot.get("peak_spin_rpm", 0.0))),
 		"mass": float(design.mass), "diameter": float(design.diameter), "peak_mach": float(shot.get("peak_mach", 0.0)),
+		"surface_crosswind": float(shot.get("surface_crosswind", 0.0)), "wind_shear_10km": float(shot.get("wind_shear_10km", 0.0)), "air_density": float(shot.get("air_density", AIR_DENSITY)), "air_pressure_kpa": float(shot.get("air_pressure_kpa", 101.325)), "air_temperature_c": float(shot.get("air_temperature_c", 15.0)),
 		"max_q": float(shot.get("max_q", 0.0)), "samples": sample_copy, "design": design.duplicate(true)
 	}
 	shot_history.append(summary)
