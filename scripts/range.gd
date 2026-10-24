@@ -1,6 +1,6 @@
 extends Node3D
 
-const RANGE_LENGTH := 2000.0
+const RANGE_LENGTH := 22000.0
 const AIR_DENSITY := 1.225
 const SEA_LEVEL_SOUND_SPEED := 343.0
 const AIR_GAS_CONSTANT := 287.05
@@ -385,25 +385,31 @@ func _build_range() -> void:
 		_add_box(self, Vector3(1.95, 0.22, -distance), Vector3(0.12, 0.42, 0.18), Color(0.92, 0.55, 0.12), 0.02, 0.58)
 	_add_box(self, Vector3(-8.0, 0.025, -24.0), Vector3(0.12, 0.05, 48.0), Color(0.96, 0.48, 0.10), 0.0, 0.7)
 	_add_box(self, Vector3(8.0, 0.025, -24.0), Vector3(0.12, 0.05, 48.0), Color(0.96, 0.48, 0.10), 0.0, 0.7)
-	# Extend the launch lane into a measured 2 km ballistic course.
+	# Continuous segmented rails, running lights and distance stations lead to 22 km.
+	var rail_segment_length := 2000.0
 	for side in [-1.0, 1.0]:
-		for segment in range(10):
-			var center_z := -100.0 - float(segment) * 200.0
-			_add_box(self, Vector3(side * 9.2, 0.36, center_z), Vector3(0.22, 0.72, 199.0), Color(0.09, 0.17, 0.22), 0.42, 0.46)
-			_add_box(self, Vector3(side * 9.2, 0.74, center_z), Vector3(0.25, 0.045, 199.0), Color(1.0, 0.42, 0.10), 0.1, 0.36)
-	for distance in range(250, 2001, 250):
+		for segment in range(int(RANGE_LENGTH / rail_segment_length)):
+			var center_z := -rail_segment_length * (float(segment) + 0.5)
+			var span := rail_segment_length - 1.0
+			_add_box(self, Vector3(side * 9.2, 0.36, center_z), Vector3(0.22, 0.72, span), Color(0.09, 0.17, 0.22), 0.42, 0.46)
+			_add_box(self, Vector3(side * 9.2, 0.74, center_z), Vector3(0.25, 0.045, span), Color(1.0, 0.42, 0.10), 0.1, 0.36)
+	for distance in range(500, int(RANGE_LENGTH) + 1, 500):
 		_add_box(self, Vector3(0.0, 0.02, -float(distance)), Vector3(0.28, 0.035, 2.2), Color(0.84, 0.89, 0.88), 0.05, 0.62)
 		_add_box(self, Vector3(0.0, 0.13, -float(distance)), Vector3(4.4, 0.26, 0.16), Color(0.09, 0.16, 0.20), 0.25, 0.58)
-		var readout := Label3D.new()
-		readout.text = "%d M" % distance
-		readout.position = Vector3(-9.45, 1.3, -float(distance))
-		readout.font_size = 64
-		readout.pixel_size = 0.008
-		readout.modulate = Color(0.55, 0.85, 0.92)
-		readout.outline_size = 8
-		add_child(readout)
+		if distance % 2000 == 0:
+			var readout := Label3D.new()
+			readout.text = "%d KM" % int(distance / 1000)
+			readout.position = Vector3(-10.2, 1.3, -float(distance))
+			readout.font_size = 64
+			readout.pixel_size = 0.008
+			readout.modulate = Color(0.55, 0.85, 0.92)
+			readout.outline_size = 8
+			add_child(readout)
 	# Tall, illuminated sensor portals and staggered target stations provide distance cues.
-	for distance in [300.0, 700.0, 1100.0, 1500.0, 1900.0]:
+	var sensor_distances := [300.0, 700.0, 1100.0, 1500.0, 1900.0]
+	for distance in range(2000, int(RANGE_LENGTH) + 1, 2000):
+		sensor_distances.append(float(distance))
+	for distance in sensor_distances:
 		for side in [-1.0, 1.0]:
 			_add_box(self, Vector3(side * 8.0, 5.0, -distance), Vector3(0.18, 10.0, 0.22), Color(0.10, 0.18, 0.23), 0.34, 0.5)
 			_add_box(self, Vector3(side * 8.0, 9.98, -distance), Vector3(0.24, 0.06, 0.26), Color(1.0, 0.36, 0.12), 0.08, 0.36)
@@ -550,7 +556,8 @@ func _build_range_details() -> void:
 			_add_box(self, Vector3(side * 9.6, 3.12, distance + 0.16), Vector3(0.055, 5.5, 0.025), Color(0.94, 0.34, 0.08), 0.25, 0.4)
 		_add_box(self, Vector3(0.0, 6.15, distance), Vector3(19.2, 0.24, 0.28), Color(0.075, 0.12, 0.16), 0.62, 0.46)
 		_add_box(self, Vector3(0.0, 6.0, distance + 0.16), Vector3(18.2, 0.045, 0.035), Color(0.10, 0.66, 0.82), 0.2, 0.35)
-	# Side-mounted range lights frame the lane without spanning across the shot path.
+	# Near fixtures provide real spill light; distant stations use emissive lamps to
+	# keep the 22 km corridor readable without dozens of costly real-time lights.
 	for distance in [-5.0, -22.0, -40.0]:
 		for side in [-1.0, 1.0]:
 			if distance != -40.0:
@@ -575,6 +582,21 @@ func _build_range_details() -> void:
 				var beam_target := Vector3(0.0, 0.0, distance - 12.0)
 				beam.look_at(beam_target, Vector3.UP)
 				_add_light_shaft(beam.global_position, beam_target, beam.light_color)
+	for distance in range(1000, int(RANGE_LENGTH) + 1, 1000):
+		var z := -float(distance)
+		for side in [-1.0, 1.0]:
+			_add_box(self, Vector3(side * 11.8, 2.0, z), Vector3(0.10, 4.0, 0.10), Color(0.11, 0.19, 0.23), 0.46, 0.52)
+			_add_box(self, Vector3(side * 11.8, 4.08, z), Vector3(0.34, 0.16, 0.34), Color(0.12, 0.83, 0.97), 0.05, 0.26)
+			_add_box(self, Vector3(side * 11.8, 3.88, z), Vector3(0.24, 0.08, 0.26), Color(1.0, 0.46, 0.14), 0.06, 0.3)
+		if distance % 2000 == 0:
+			var station_light := OmniLight3D.new()
+			station_light.name = "DownrangeStationLight"
+			station_light.position = Vector3(11.8 if (distance / 2000) % 2 == 0 else -11.8, 3.8, z)
+			station_light.light_color = Color(0.18, 0.72, 0.92)
+			station_light.light_energy = 1.3
+			station_light.omni_range = 28.0
+			station_light.shadow_enabled = false
+			add_child(station_light)
 
 
 func _build_range_assets() -> void:
@@ -1006,7 +1028,14 @@ func _build_hud() -> void:
 	target_distance_picker.add_theme_color_override("font_color", Color(0.83, 0.92, 0.95))
 	for distance in range(250, 2001, 250):
 		target_distance_picker.add_item("%d M" % distance)
-	target_distance_picker.selected = target_distance_picker.item_count - 1
+	for distance in range(3000, int(RANGE_LENGTH) + 1, 1000):
+		target_distance_picker.add_item("%d M" % distance)
+	var default_distance_index := 0
+	for item_index in target_distance_picker.item_count:
+		if int(target_distance_picker.get_item_text(item_index).trim_suffix(" M")) == target_distance_m:
+			default_distance_index = item_index
+			break
+	target_distance_picker.selected = default_distance_index
 	target_distance_picker.item_selected.connect(_on_target_distance_selected)
 	stack.add_child(target_distance_picker)
 	_on_target_distance_selected(target_distance_picker.selected)
