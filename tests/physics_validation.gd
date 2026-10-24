@@ -56,7 +56,8 @@ func _check_atmosphere(model: Object) -> void:
 func _check_layer_continuity(model: Object) -> void:
 	var geopotential_breaks := [11000.0, 20000.0, 32000.0, 47000.0, 51000.0, 71000.0, 84852.0]
 	for boundary in geopotential_breaks:
-		var geometric := ATMOSPHERE_RADIUS * boundary / (ATMOSPHERE_RADIUS - boundary)
+		var boundary_altitude := float(boundary)
+		var geometric: float = ATMOSPHERE_RADIUS * boundary_altitude / (ATMOSPHERE_RADIUS - boundary_altitude)
 		var below: Dictionary = model.call("_atmosphere_state", geometric - 1.0)
 		var above: Dictionary = model.call("_atmosphere_state", geometric + 1.0)
 		var density_gap := absf(float(above.density) - float(below.density)) / maxf(float(below.density), 0.000000001)
