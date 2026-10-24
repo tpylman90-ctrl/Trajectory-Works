@@ -15,6 +15,8 @@ func _initialize() -> void:
 	_check_gravity(model)
 	_check_dynamic_pressure(model)
 	_check_wind_profile(model)
+	_check_design_persistence_helpers(model)
+	_check_challenge_requirements(model)
 	model.free()
 	if failures == 0:
 		print("Physics validation passed: atmosphere layers, continuity, gravity, dynamic pressure, and wind shear.")
@@ -82,6 +84,40 @@ func _check_wind_profile(model: Object) -> void:
 	_expect_close("full wind shear at 10 km", float(model.call("_wind_at_altitude", 3.0, 8.0, 10000.0)), 11.0, 0.00001)
 	_expect_close("wind profile clamps below ground", float(model.call("_wind_at_altitude", 3.0, 8.0, -100.0)), 3.0, 0.00001)
 	_expect_close("wind profile caps above 10 km", float(model.call("_wind_at_altitude", 3.0, 8.0, 25000.0)), 11.0, 0.00001)
+
+
+func _check_design_persistence_helpers(model: Object) -> void:
+	var sample := {
+		"name": "Test Twist Round", "shape": "custom", "mass": 19.5, "diameter": 0.12,
+		"length": 0.72, "cd": 0.25, "nose": "Ogive", "material": "Tungsten alloy",
+		"density": 18000.0, "tip_length": 0.17,
+		"stations": [{"pull": 0.82, "bend_x": 0.1, "bend_y": -0.1, "twist": 0.6}],
+		"surface_pattern": "grooves", "rib_count": 8, "rib_depth": 0.004,
+		"tip_surface_pattern": "ribs", "tip_rib_depth": 0.003, "spiral_turns": 1.5,
+	}
+	var saved: Dictionary = model.call("_serialize_design", sample)
+	var restored: Dictionary = model.call("_deserialize_saved_design", saved)
+	_expect_true("saved round keeps custom geometry", str(restored.get("shape", "")) == "custom")
+	_expect_true("saved round keeps material", str(restored.get("material", "")) == "Tungsten alloy")
+	_expect_true("saved round keeps spiral channels", is_equal_approx(float(restored.get("spiral_turns", 0.0)), 1.5))
+	_expect_true("saved round keeps sculpt stations", (restored.get("stations", []) as Array).size() == 1)
+	_expect_true("round-trip mass remains physical", float(restored.get("mass", 0.0)) > 0.0)
+
+
+func _check_challenge_requirements(model: Object) -> void:
+	var challenge := {"min_score": 25, "requires_custom": true, "requires_gate": true, "target_m": 8000, "gate_m": 4000, "gate_material": 0, "gate_thickness": 100}
+	var summary := {
+		"outcome": "TARGET HIT • 50 PTS", "target_score": 50, "target_distance_m": 8000,
+		"design": {"shape": "custom"}, "gate_log": ["ARMOR STEEL 100 MM PERFORATED"],
+		"gate_passes": [{"material_index": 0, "thickness_mm": 100, "distance_m": 4000}],
+	}
+	_expect_true("challenge accepts valid custom gate hit", str(model.call("_challenge_failure_reason", challenge, summary)).is_empty())
+	var missing_gate := summary.duplicate(true)
+	missing_gate["gate_passes"] = []
+	_expect_true("challenge requires gate perforation", not str(model.call("_challenge_failure_reason", challenge, missing_gate)).is_empty())
+	var low_score := summary.duplicate(true)
+	low_score["target_score"] = 10
+	_expect_true("challenge enforces target score", not str(model.call("_challenge_failure_reason", challenge, low_score)).is_empty())
 
 
 func _expect_close(label: String, actual: float, expected: float, tolerance: float) -> void:
