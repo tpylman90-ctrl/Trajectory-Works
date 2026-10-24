@@ -85,6 +85,8 @@ var round_drag_active := false
 var round_last_pointer := Vector2.ZERO
 var speed_slider: HSlider
 var elevation_slider: HSlider
+var traverse_value_label: Label
+var traverse_slider: HSlider
 var wind_slider: HSlider
 var wind_shear_slider: HSlider
 var wind_shear_value_label: Label
@@ -206,7 +208,7 @@ const ROUND_MATERIALS := [
 ]
 const CHALLENGES := [
 	{"id": "flight_basics", "title": "01  /  SIGHT IN", "tier": "ROOKIE", "description": "Put a clean hit on the 1 km target. Learn how launch angle shapes the arc.", "target_m": 1000, "speed": 950.0, "elevation": 0.5, "wind": 0.0, "shear": 0.0, "preset": 0, "min_score": 25, "requires_custom": false, "requires_gate": false},
-	{"id": "crosswind", "title": "02  /  CROSSWIND", "tier": "FIELD TEST", "description": "Correct for a 6 m/s crosswind and hit the 3 km target.", "target_m": 3000, "speed": 1800.0, "elevation": 0.3, "wind": 6.0, "shear": 0.0, "preset": 0, "min_score": 10, "requires_custom": false, "requires_gate": false},
+	{"id": "crosswind", "title": "02  /  CROSSWIND", "tier": "FIELD TEST", "description": "Use cannon traverse to correct a 6 m/s crosswind and hit the 3 km target.", "target_m": 3000, "speed": 1800.0, "elevation": 0.3, "wind": 6.0, "shear": 0.0, "preset": 0, "min_score": 10, "requires_custom": false, "requires_gate": false},
 	{"id": "custom_profile", "title": "03  /  CUSTOM PROFILE", "tier": "ENGINEERING", "description": "Build or load a custom round, then score a hit at 6 km in shifting wind.", "target_m": 6000, "speed": 2200.0, "elevation": 0.55, "wind": -7.0, "shear": 3.0, "preset": -1, "min_score": 10, "requires_custom": true, "requires_gate": false},
 	{"id": "armor_gate", "title": "04  /  ARMOR GATE", "tier": "PENETRATION", "description": "Perforate 100 mm of armor steel at 4 km and hit the target at 8 km.", "target_m": 8000, "speed": 2400.0, "elevation": 0.65, "wind": 3.0, "shear": -1.0, "preset": 0, "min_score": 10, "requires_custom": false, "requires_gate": true, "gate_m": 4000, "gate_material": 0, "gate_thickness": 100},
 	{"id": "long_range", "title": "05  /  LONG RANGE", "tier": "ADVANCED", "description": "Reach 14 km through a strong crosswind. Tune speed, elevation, and round shape.", "target_m": 14000, "speed": 2800.0, "elevation": 0.9, "wind": -10.0, "shear": 5.0, "preset": 0, "min_score": 10, "requires_custom": false, "requires_gate": false},
@@ -1335,6 +1337,16 @@ void fragment() {
 	elevation_slider.value = 0.2
 	elevation_slider.value_changed.connect(_on_elevation_changed)
 	stack.add_child(elevation_slider)
+	traverse_value_label = Label.new()
+	stack.add_child(traverse_value_label)
+	traverse_slider = HSlider.new()
+	traverse_slider.min_value = -4.0
+	traverse_slider.max_value = 4.0
+	traverse_slider.step = 0.05
+	traverse_slider.value = 0.0
+	traverse_slider.value_changed.connect(_on_traverse_changed)
+	stack.add_child(traverse_slider)
+	_on_traverse_changed(traverse_slider.value)
 	wind_value_label = Label.new()
 	stack.add_child(wind_value_label)
 	wind_slider = HSlider.new()
@@ -1802,6 +1814,8 @@ func _apply_challenge_settings(challenge: Dictionary) -> void:
 	_on_speed_changed(speed_slider.value)
 	elevation_slider.set_value_no_signal(float(challenge.elevation))
 	_on_elevation_changed(elevation_slider.value)
+	traverse_slider.set_value_no_signal(0.0)
+	_on_traverse_changed(traverse_slider.value)
 	wind_slider.set_value_no_signal(float(challenge.wind))
 	_on_wind_changed(wind_slider.value)
 	wind_shear_slider.set_value_no_signal(float(challenge.shear))
@@ -3183,10 +3197,26 @@ func _on_speed_changed(value: float) -> void:
 func _on_elevation_changed(value: float) -> void:
 	if is_instance_valid(elevation_value_label):
 		elevation_value_label.text = "BARREL ELEVATION  •  %+0.1f°" % value
-	if is_instance_valid(barrel_pivot):
-		var pivot_rotation := barrel_pivot_base_rotation
-		pivot_rotation.x += deg_to_rad(value)
-		barrel_pivot.rotation = pivot_rotation
+	_update_cannon_aim()
+
+
+func _on_traverse_changed(value: float) -> void:
+	if is_instance_valid(traverse_value_label):
+		traverse_value_label.text = "CANNON TRAVERSE  •  %+0.2f°" % value
+	_update_cannon_aim()
+
+
+func _update_cannon_aim() -> void:
+	if not is_instance_valid(barrel_pivot):
+		return
+	var pivot_rotation := barrel_pivot_base_rotation
+	pivot_rotation.x += deg_to_rad(elevation_slider.value)
+	barrel_pivot.rotation = pivot_rotation
+	# Compose traverse around the range's world-up axis after elevation. The same
+	# pivot transform drives both the visible bore and the projectile muzzle vector.
+	var aimed_transform := barrel_pivot.global_transform
+	aimed_transform.basis = Basis(Vector3.UP, deg_to_rad(traverse_slider.value)) * aimed_transform.basis
+	barrel_pivot.global_transform = aimed_transform
 
 
 func _on_wind_changed(value: float) -> void:
@@ -3362,7 +3392,7 @@ func _fire_test_shot() -> void:
 	var initial_atmosphere := _atmosphere_state(projectile.global_position.y)
 	var initial_spin := absf(projectile.angular_velocity.dot(-projectile.global_transform.basis.z.normalized())) * 60.0 / TAU
 	var initial_sample := {"time": 0.0, "position": projectile.global_position, "rotation": projectile.global_transform.basis.get_rotation_quaternion(), "velocity": projectile.linear_velocity, "mach": projectile.linear_velocity.length() / maxf(float(initial_atmosphere.sound_speed), 1.0), "spin_rpm": initial_spin, "q": 0.5 * float(initial_atmosphere.density) * projectile.linear_velocity.length_squared()}
-	active_shots[projectile.get_instance_id()] = {"body": projectile, "number": shot_count, "time": 0.0, "sample_timer": 0.0, "samples": [initial_sample], "max_height": projectile.global_position.y, "max_q": 0.0, "peak_mach": 0.0, "peak_spin_rpm": initial_spin, "origin": projectile.global_position, "design": design, "surface_crosswind": wind_slider.value, "wind_shear_10km": wind_shear_slider.value, "air_density": float(initial_atmosphere.density), "air_pressure_kpa": float(initial_atmosphere.pressure) / 1000.0, "air_temperature_c": float(initial_atmosphere.temperature) - 273.15, "challenge_id": str(CHALLENGES[active_challenge_index].id) if game_mode == "challenge" and active_challenge_index >= 0 else "", "target_distance_m": target_distance_m}
+	active_shots[projectile.get_instance_id()] = {"body": projectile, "number": shot_count, "time": 0.0, "sample_timer": 0.0, "samples": [initial_sample], "max_height": projectile.global_position.y, "max_q": 0.0, "peak_mach": 0.0, "peak_spin_rpm": initial_spin, "origin": projectile.global_position, "design": design, "surface_crosswind": wind_slider.value, "wind_shear_10km": wind_shear_slider.value, "cannon_traverse_degrees": traverse_slider.value, "air_density": float(initial_atmosphere.density), "air_pressure_kpa": float(initial_atmosphere.pressure) / 1000.0, "air_temperature_c": float(initial_atmosphere.temperature) - 273.15, "challenge_id": str(CHALLENGES[active_challenge_index].id) if game_mode == "challenge" and active_challenge_index >= 0 else "", "target_distance_m": target_distance_m}
 	_play_cannon_fire_effect()
 	analysis_label.text = "IN FLIGHT  •  %0.1f KG / %0.0f MM / Cd %0.2f" % [design.mass, design.diameter * 1000.0, design.cd]
 	# Shots remain active until impact; the long failsafe only cleans up runaway bodies.
