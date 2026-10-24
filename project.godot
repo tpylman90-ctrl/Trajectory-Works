@@ -6,6 +6,7 @@ config_version=5
 
 config/name="Trajectory Works"
 run/main_scene="res://scenes/range.tscn"
+config/icon="res://assets/icons/trajectory_works_icon.png"
 config/features=PackedStringArray("4.6", "GL Compatibility")
 
 [display]
