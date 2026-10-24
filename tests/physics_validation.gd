@@ -1,0 +1,86 @@
+extends SceneTree
+
+const RANGE_SCRIPT := preload("res://scripts/range.gd")
+const GAS_CONSTANT := 287.05
+const GAMMA := 1.4
+const ATMOSPHERE_RADIUS := 6356766.0
+
+var failures := 0
+
+
+func _initialize() -> void:
+	var model = RANGE_SCRIPT.new()
+	_check_atmosphere(model)
+	_check_layer_continuity(model)
+	_check_gravity(model)
+	_check_dynamic_pressure(model)
+	model.free()
+	if failures == 0:
+		print("Physics validation passed: atmosphere layers, continuity, gravity, and dynamic pressure.")
+		quit(0)
+	else:
+		printerr("Physics validation failed: %d check(s)." % failures)
+		quit(1)
+
+
+func _check_atmosphere(model: Object) -> void:
+	# Reference checkpoints at geometric altitude, cross-checked with the
+	# 1976 U.S. Standard Atmosphere layer equations.
+	var checkpoints := [
+		[0.0, 1.2250123],
+		[11000.0, 0.3647996],
+		[20000.0, 0.0889095],
+		[32000.0, 0.0135550],
+		[47000.0, 0.0014965],
+		[51000.0, 0.00090691],
+		[71000.0, 0.000071964],
+		[84852.0, 0.0000084234],
+	]
+	var previous_density := INF
+	for checkpoint in checkpoints:
+		var altitude := float(checkpoint[0])
+		var expected_density := float(checkpoint[1])
+		var state: Dictionary = model.call("_atmosphere_state", altitude)
+		var density := float(state.density)
+		var pressure := float(state.pressure)
+		var temperature := float(state.temperature)
+		var sound_speed := float(state.sound_speed)
+		_expect_close("density at %0.0f m" % altitude, density, expected_density, expected_density * 0.015)
+		_expect_close("ideal-gas pressure relation at %0.0f m" % altitude, pressure, density * GAS_CONSTANT * temperature, maxf(pressure * 0.00001, 0.000001))
+		_expect_close("sound speed at %0.0f m" % altitude, sound_speed, sqrt(GAMMA * GAS_CONSTANT * temperature), 0.001)
+		_expect_true("positive viscosity at %0.0f m" % altitude, float(state.dynamic_viscosity) > 0.0)
+		_expect_true("density decreases at %0.0f m" % altitude, density < previous_density)
+		previous_density = density
+
+
+func _check_layer_continuity(model: Object) -> void:
+	var geopotential_breaks := [11000.0, 20000.0, 32000.0, 47000.0, 51000.0, 71000.0, 84852.0]
+	for boundary in geopotential_breaks:
+		var geometric := ATMOSPHERE_RADIUS * boundary / (ATMOSPHERE_RADIUS - boundary)
+		var below: Dictionary = model.call("_atmosphere_state", geometric - 1.0)
+		var above: Dictionary = model.call("_atmosphere_state", geometric + 1.0)
+		var density_gap := absf(float(above.density) - float(below.density)) / maxf(float(below.density), 0.000000001)
+		_expect_true("atmosphere continuity at %0.0f m" % boundary, density_gap < 0.002)
+
+
+func _check_gravity(model: Object) -> void:
+	_expect_close("sea-level gravity", float(model.call("_local_gravity", 0.0)), 9.80665, 0.00001)
+	var expected_100km := 9.80665 * pow(6371000.0 / 6471000.0, 2.0)
+	_expect_close("inverse-square gravity at 100 km", float(model.call("_local_gravity", 100000.0)), expected_100km, 0.00001)
+
+
+func _check_dynamic_pressure(model: Object) -> void:
+	_expect_close("dynamic pressure at 100 m/s", float(model.call("_dynamic_pressure", 1.225, 100.0)), 6125.0, 0.00001)
+	_expect_close("dynamic pressure scales with speed squared", float(model.call("_dynamic_pressure", 1.225, 200.0)), 24500.0, 0.00001)
+
+
+func _expect_close(label: String, actual: float, expected: float, tolerance: float) -> void:
+	if not is_finite(actual) or absf(actual - expected) > tolerance:
+		failures += 1
+		printerr("%s: expected %0.8f ± %0.8f, got %0.8f" % [label, expected, tolerance, actual])
+
+
+func _expect_true(label: String, condition: bool) -> void:
+	if not condition:
+		failures += 1
+		printerr("Failed: %s" % label)

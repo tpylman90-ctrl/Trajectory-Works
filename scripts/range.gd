@@ -7,6 +7,17 @@ const AIR_GAS_CONSTANT := 287.05
 const AIR_GAMMA := 1.4
 const AIR_GRAVITY := 9.80665
 const EARTH_RADIUS := 6371000.0
+const ATMOSPHERE_RADIUS := 6356766.0
+const ATMOSPHERE_LAYERS := [
+	{"base_h": 0.0, "base_t": 288.15, "base_p": 101325.0, "lapse": -0.0065},
+	{"base_h": 11000.0, "base_t": 216.65, "base_p": 22632.06, "lapse": 0.0},
+	{"base_h": 20000.0, "base_t": 216.65, "base_p": 5474.889, "lapse": 0.001},
+	{"base_h": 32000.0, "base_t": 228.65, "base_p": 868.0187, "lapse": 0.0028},
+	{"base_h": 47000.0, "base_t": 270.65, "base_p": 110.9063, "lapse": 0.0},
+	{"base_h": 51000.0, "base_t": 270.65, "base_p": 66.93887, "lapse": -0.0028},
+	{"base_h": 71000.0, "base_t": 214.65, "base_p": 3.956420, "lapse": -0.002},
+	{"base_h": 84852.0, "base_t": 186.946, "base_p": 0.3734, "lapse": 0.0},
+]
 const MAX_SHOT_FLIGHT_TIME := 900.0
 const MAX_SHOT_TRAVEL := 2500000.0
 const PROJECTILE_TYPES := [
@@ -2591,28 +2602,51 @@ func _update_projectile_flow_vfx(projectile: RigidBody3D, design: Dictionary, re
 
 
 func _atmosphere_state(altitude: float) -> Dictionary:
-	var h := maxf(altitude, 0.0)
-	var temperature := 288.15
-	var density := AIR_DENSITY
-	if h <= 11000.0:
-		temperature = 288.15 - 0.0065 * h
-		density = AIR_DENSITY * pow(temperature / 288.15, 4.25588)
-	elif h <= 20000.0:
-		temperature = 216.65
-		density = 0.36391 * exp(-(h - 11000.0) / 6341.6)
-	elif h <= 32000.0:
-		temperature = 216.65 + 0.001 * (h - 20000.0)
-		var density_at_20km := 0.36391 * exp(-9000.0 / 6341.6)
-		density = density_at_20km * pow(temperature / 216.65, -(AIR_GRAVITY / (AIR_GAS_CONSTANT * 0.001)) - 1.0)
+	# Layered 1976 U.S. Standard Atmosphere through the mesosphere. The layer
+	# equations use geopotential altitude and maintain pressure continuity.
+	var geometric_altitude := maxf(altitude, 0.0)
+	var geopotential_altitude := ATMOSPHERE_RADIUS * geometric_altitude / (ATMOSPHERE_RADIUS + geometric_altitude)
+	var layer: Dictionary = ATMOSPHERE_LAYERS[0]
+	for candidate in ATMOSPHERE_LAYERS:
+		if geopotential_altitude >= float(candidate.base_h):
+			layer = candidate
+		else:
+			break
+	var base_h := float(layer.base_h)
+	var base_temperature := float(layer.base_t)
+	var base_pressure := float(layer.base_p)
+	var lapse_rate := float(layer.lapse)
+	var temperature := base_temperature + lapse_rate * (geopotential_altitude - base_h)
+	var pressure: float
+	if absf(lapse_rate) < 0.0000001:
+		pressure = base_pressure * exp(-AIR_GRAVITY * (geopotential_altitude - base_h) / (AIR_GAS_CONSTANT * base_temperature))
 	else:
-		temperature = 228.65
-		var density_at_32km := 0.36391 * exp(-9000.0 / 6341.6) * pow(228.65 / 216.65, -(AIR_GRAVITY / (AIR_GAS_CONSTANT * 0.001)) - 1.0)
-		density = density_at_32km * exp(-(h - 32000.0) / 7000.0)
+		pressure = base_pressure * pow(temperature / base_temperature, -AIR_GRAVITY / (AIR_GAS_CONSTANT * lapse_rate))
+	# Above the tabulated mesosphere, continue into a rapidly thinning upper atmosphere.
+	# This remains an educational approximation; weather and solar activity are not modeled.
+	if geopotential_altitude > 84852.0:
+		var upper_scale_height := AIR_GAS_CONSTANT * 186.946 / AIR_GRAVITY
+		pressure = 0.3734 * exp(-(geopotential_altitude - 84852.0) / upper_scale_height)
+		temperature = 186.946
+	var density := pressure / (AIR_GAS_CONSTANT * temperature)
+	var sound_speed := sqrt(AIR_GAMMA * AIR_GAS_CONSTANT * temperature)
+	var dynamic_viscosity := 1.458e-6 * pow(temperature, 1.5) / (temperature + 110.4)
 	return {
+		"temperature": temperature,
+		"pressure": maxf(pressure, 0.0),
 		"density": maxf(density, 0.0),
-		"sound_speed": sqrt(AIR_GAMMA * AIR_GAS_CONSTANT * temperature),
+		"sound_speed": sound_speed,
+		"dynamic_viscosity": dynamic_viscosity,
 	}
 
+
+func _local_gravity(altitude: float) -> float:
+	var radius_ratio := EARTH_RADIUS / (EARTH_RADIUS + maxf(altitude, 0.0))
+	return AIR_GRAVITY * radius_ratio * radius_ratio
+
+
+func _dynamic_pressure(density: float, speed: float) -> float:
+	return 0.5 * maxf(density, 0.0) * speed * speed
 
 func _mach_drag_multiplier(mach: float, nose: String = "Ogive") -> float:
 	# A compact transonic drag rise followed by the milder coefficient change
@@ -2636,15 +2670,15 @@ func _physics_process(_delta: float) -> void:
 			active_shots.erase(shot_id)
 			continue
 		var altitude := maxf(projectile.global_position.y, 0.0)
-		var local_gravity := AIR_GRAVITY * pow(EARTH_RADIUS / (EARTH_RADIUS + altitude), 2.0)
+		var local_gravity := _local_gravity(altitude)
 		# Use Godot's rigid-body gravity integration, scaled for altitude. This keeps
 		# the ballistic drop active through every physics tick without force buildup.
 		projectile.gravity_scale = local_gravity / AIR_GRAVITY
 		var velocity := projectile.linear_velocity
 		var base_wind := float(projectile.get_meta("wind_x"))
-		var altitude_shear := signf(base_wind) * minf(absf(base_wind) * 0.8, absf(base_wind) * clampf(altitude / 6000.0, 0.0, 0.8))
-		var course_gust := sin(projectile.global_position.z * 0.0013 + altitude * 0.00017 + float(shot.number)) * absf(base_wind) * 0.12
-		var wind_at_round := base_wind + altitude_shear + course_gust
+		# The range wind control is a steady crosswind so test shots remain repeatable.
+		# Variable gusts need a player-controlled turbulence setting before being added.
+		var wind_at_round := base_wind
 		var relative_air_velocity := velocity - Vector3(wind_at_round, 0.0, 0.0)
 		var speed := relative_air_velocity.length()
 		if speed > 0.01:
@@ -2669,7 +2703,7 @@ func _physics_process(_delta: float) -> void:
 			var mach := speed / maxf(float(atmosphere.sound_speed), 1.0)
 			var nose_name := str(design.get("nose", "Ogive"))
 			var drag := 0.5 * density * effective_cd * _mach_drag_multiplier(mach, nose_name) * projected_area * speed * speed
-			var dynamic_pressure := 0.5 * density * speed * speed
+			var dynamic_pressure := _dynamic_pressure(density, speed)
 			shot.max_q = maxf(float(shot.get("max_q", 0.0)), dynamic_pressure)
 			shot.peak_mach = maxf(float(shot.get("peak_mach", 0.0)), mach)
 			projectile.apply_central_force(-relative_air_velocity.normalized() * drag)
@@ -2717,7 +2751,7 @@ func _physics_process(_delta: float) -> void:
 			var sample_axis := -projectile.global_transform.basis.z.normalized()
 			var sample_spin := absf(projectile.angular_velocity.dot(sample_axis)) * 60.0 / TAU
 			var samples: Array = shot.samples
-			samples.append({"time": shot.time, "position": projectile.global_position, "rotation": projectile.global_transform.basis.get_rotation_quaternion(), "velocity": projectile.linear_velocity, "mach": projectile.linear_velocity.length() / maxf(float(sample_atmosphere.sound_speed), 1.0), "spin_rpm": sample_spin, "q": 0.5 * float(sample_atmosphere.density) * projectile.linear_velocity.length_squared()})
+			samples.append({"time": shot.time, "position": projectile.global_position, "rotation": projectile.global_transform.basis.get_rotation_quaternion(), "velocity": projectile.linear_velocity, "mach": projectile.linear_velocity.length() / maxf(float(sample_atmosphere.sound_speed), 1.0), "spin_rpm": sample_spin, "q": _dynamic_pressure(float(sample_atmosphere.density), projectile.linear_velocity.length())})
 			shot.samples = samples
 			if projectile == last_projectile and is_instance_valid(analysis_label):
 				analysis_label.text = "IN FLIGHT  •  %0.1f KG / %0.0f MM / Cd %0.2f\nALTITUDE %0.1f M  •  VERTICAL SPEED %+0.1f M/S\nTIME %0.2f S" % [
@@ -2934,7 +2968,7 @@ func _on_projectile_body_entered(body: Node, projectile: RigidBody3D) -> void:
 	var impact_atmosphere := _atmosphere_state(projectile.global_position.y)
 	var impact_mach := impact_speed / maxf(float(impact_atmosphere.sound_speed), 1.0)
 	var final_samples: Array = shot.samples
-	final_samples.append({"time": shot.time, "position": projectile.global_position, "rotation": projectile.global_transform.basis.get_rotation_quaternion(), "velocity": projectile.linear_velocity, "mach": impact_mach, "spin_rpm": absf(projectile.angular_velocity.dot(-projectile.global_transform.basis.z.normalized())) * 60.0 / TAU, "q": 0.5 * float(impact_atmosphere.density) * impact_speed * impact_speed})
+	final_samples.append({"time": shot.time, "position": projectile.global_position, "rotation": projectile.global_transform.basis.get_rotation_quaternion(), "velocity": projectile.linear_velocity, "mach": impact_mach, "spin_rpm": absf(projectile.angular_velocity.dot(-projectile.global_transform.basis.z.normalized())) * 60.0 / TAU, "q": _dynamic_pressure(float(impact_atmosphere.density), impact_speed)})
 	shot.samples = final_samples
 	_finish_shot(shot, projectile, result, impact_speed)
 	if body.is_in_group("collision_test_gates"):
@@ -2956,7 +2990,7 @@ func _finish_shot(shot: Dictionary, projectile: RigidBody3D, outcome: String, im
 	var sample_copy: Array = shot.samples.duplicate(true)
 	var terminal_time := float(shot.time)
 	if sample_copy.is_empty() or absf(float(sample_copy.back().time) - terminal_time) > 0.001:
-		sample_copy.append({"time": terminal_time, "position": projectile.global_position, "rotation": projectile.global_transform.basis.get_rotation_quaternion(), "velocity": projectile.linear_velocity, "mach": impact_speed / maxf(float(final_atmosphere.sound_speed), 1.0), "spin_rpm": final_spin, "q": 0.5 * float(final_atmosphere.density) * impact_speed * impact_speed})
+		sample_copy.append({"time": terminal_time, "position": projectile.global_position, "rotation": projectile.global_transform.basis.get_rotation_quaternion(), "velocity": projectile.linear_velocity, "mach": impact_speed / maxf(float(final_atmosphere.sound_speed), 1.0), "spin_rpm": final_spin, "q": _dynamic_pressure(float(final_atmosphere.density), impact_speed)})
 	var summary := {
 		"shot": int(shot.number), "outcome": outcome, "gate_log": shot.get("gate_log", []), "range": maxf(-displacement.z, 0.0), "offset_x": displacement.x,
 		"time": float(shot.time), "apex": float(shot.max_height), "impact_speed": impact_speed,
