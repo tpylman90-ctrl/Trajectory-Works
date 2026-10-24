@@ -32,11 +32,28 @@ var camera_yaw := 0.20
 var camera_pitch := 0.24
 var camera_distance := 34.0
 var status_label: Label
+var range_hud_layer: CanvasLayer
 var range_hud_panel: PanelContainer
 var analysis_label: Label
 var projectile_picker: OptionButton
 var current_projectile: Dictionary = {}
 var custom_round_active := false
+var game_mode := ""
+var active_challenge_index := -1
+var challenge_completed_ids: Array[String] = []
+var saved_munition_designs: Array[Dictionary] = []
+var start_page_layer: CanvasLayer
+var start_page_root: Control
+var start_panel: PanelContainer
+var design_vault_layer: CanvasLayer
+var design_vault_root: Control
+var design_vault_name_edit: LineEdit
+var design_vault_list: VBoxContainer
+var design_vault_message: Label
+var design_vault_was_gameplay := false
+var mode_menu_button: Button
+var design_vault_button: Button
+var mode_status_label: Label
 var round_editor_screen: Control
 var round_preview_spin: Node3D
 var round_preview_model: MeshInstance3D
@@ -187,6 +204,14 @@ const ROUND_MATERIALS := [
 	{"name": "Copper alloy", "density": 8960.0, "color": Color(0.72, 0.32, 0.15)},
 	{"name": "Tungsten alloy", "density": 18000.0, "color": Color(0.25, 0.31, 0.37)},
 ]
+const CHALLENGES := [
+	{"id": "flight_basics", "title": "01  /  SIGHT IN", "tier": "ROOKIE", "description": "Put a clean hit on the 1 km target. Learn how launch angle shapes the arc.", "target_m": 1000, "speed": 950.0, "elevation": 0.5, "wind": 0.0, "shear": 0.0, "preset": 0, "min_score": 25, "requires_custom": false, "requires_gate": false},
+	{"id": "crosswind", "title": "02  /  CROSSWIND", "tier": "FIELD TEST", "description": "Correct for a 6 m/s crosswind and hit the 3 km target.", "target_m": 3000, "speed": 1800.0, "elevation": 0.3, "wind": 6.0, "shear": 0.0, "preset": 0, "min_score": 10, "requires_custom": false, "requires_gate": false},
+	{"id": "custom_profile", "title": "03  /  CUSTOM PROFILE", "tier": "ENGINEERING", "description": "Build or load a custom round, then score a hit at 6 km in shifting wind.", "target_m": 6000, "speed": 2200.0, "elevation": 0.55, "wind": -7.0, "shear": 3.0, "preset": -1, "min_score": 10, "requires_custom": true, "requires_gate": false},
+	{"id": "armor_gate", "title": "04  /  ARMOR GATE", "tier": "PENETRATION", "description": "Perforate 100 mm of armor steel at 4 km and hit the target at 8 km.", "target_m": 8000, "speed": 2400.0, "elevation": 0.65, "wind": 3.0, "shear": -1.0, "preset": 0, "min_score": 10, "requires_custom": false, "requires_gate": true, "gate_m": 4000, "gate_material": 0, "gate_thickness": 100},
+	{"id": "long_range", "title": "05  /  LONG RANGE", "tier": "ADVANCED", "description": "Reach 14 km through a strong crosswind. Tune speed, elevation, and round shape.", "target_m": 14000, "speed": 2800.0, "elevation": 0.9, "wind": -10.0, "shear": 5.0, "preset": 0, "min_score": 10, "requires_custom": false, "requires_gate": false},
+	{"id": "maximum_range", "title": "06  /  MAXIMUM RANGE", "tier": "EXPERT", "description": "Hold a 20 km solution with changing wind and earn a center-ring hit.", "target_m": 20000, "speed": 3000.0, "elevation": 1.2, "wind": 12.0, "shear": -8.0, "preset": 0, "min_score": 25, "requires_custom": false, "requires_gate": false},
+]
 
 
 func _process(delta: float) -> void:
@@ -213,7 +238,10 @@ func _ready() -> void:
 	_build_range_assets()
 	current_projectile = PROJECTILE_TYPES[0].duplicate(true)
 	_load_saved_round()
+	_load_saved_designs()
+	_load_challenge_progress()
 	_build_hud()
+	_build_start_page()
 	set_physics_process(true)
 
 
@@ -1168,6 +1196,7 @@ func _stop_slow_replay() -> void:
 
 func _build_hud() -> void:
 	var layer := CanvasLayer.new()
+	range_hud_layer = layer
 	add_child(layer)
 	var vignette := ColorRect.new()
 	vignette.name = "Subtle screen-space lens vignette"
@@ -1221,6 +1250,11 @@ void fragment() {
 	selector_style.border_color = Color(0.20, 0.72, 0.84, 0.70)
 	selector_style.set_border_width_all(1)
 	selector_style.set_corner_radius_all(2)
+	mode_status_label = Label.new()
+	mode_status_label.text = "SELECT A MODE TO BEGIN"
+	mode_status_label.add_theme_font_size_override("font_size", 13)
+	mode_status_label.add_theme_color_override("font_color", Color(1.0, 0.60, 0.23))
+	stack.add_child(mode_status_label)
 	projectile_picker = OptionButton.new()
 	projectile_picker.add_theme_stylebox_override("normal", selector_style)
 	projectile_picker.add_theme_stylebox_override("hover", selector_style)
@@ -1389,6 +1423,40 @@ void fragment() {
 	edit_round_button.add_theme_color_override("font_color", Color(0.55, 0.94, 1.0))
 	edit_round_button.pressed.connect(_open_round_editor)
 	layer.add_child(edit_round_button)
+	mode_menu_button = Button.new()
+	mode_menu_button.text = "MODES  /  CHALLENGES"
+	mode_menu_button.custom_minimum_size = Vector2(220.0, 40.0)
+	mode_menu_button.anchor_left = 1.0
+	mode_menu_button.anchor_right = 1.0
+	mode_menu_button.anchor_top = 0.0
+	mode_menu_button.anchor_bottom = 0.0
+	mode_menu_button.offset_left = -246.0
+	mode_menu_button.offset_right = -26.0
+	mode_menu_button.offset_top = 72.0
+	mode_menu_button.offset_bottom = 114.0
+	mode_menu_button.add_theme_font_size_override("font_size", 14)
+	mode_menu_button.add_theme_stylebox_override("normal", button_normal)
+	mode_menu_button.add_theme_stylebox_override("hover", button_hover)
+	mode_menu_button.add_theme_color_override("font_color", Color(0.55, 0.94, 1.0))
+	mode_menu_button.pressed.connect(_open_main_menu)
+	layer.add_child(mode_menu_button)
+	design_vault_button = Button.new()
+	design_vault_button.text = "MUNITION DESIGN VAULT"
+	design_vault_button.custom_minimum_size = Vector2(220.0, 40.0)
+	design_vault_button.anchor_left = 1.0
+	design_vault_button.anchor_right = 1.0
+	design_vault_button.anchor_top = 0.0
+	design_vault_button.anchor_bottom = 0.0
+	design_vault_button.offset_left = -246.0
+	design_vault_button.offset_right = -26.0
+	design_vault_button.offset_top = 120.0
+	design_vault_button.offset_bottom = 162.0
+	design_vault_button.add_theme_font_size_override("font_size", 13)
+	design_vault_button.add_theme_stylebox_override("normal", button_normal)
+	design_vault_button.add_theme_stylebox_override("hover", button_hover)
+	design_vault_button.add_theme_color_override("font_color", Color(0.55, 0.94, 1.0))
+	design_vault_button.pressed.connect(_open_design_vault)
+	layer.add_child(design_vault_button)
 	var gate_config_label := Label.new()
 	gate_config_label.text = "GATE ARMOR  •  ENERGY-WORK MODEL"
 	gate_config_label.anchor_left = 1.0
@@ -1478,6 +1546,634 @@ void fragment() {
 	_on_elevation_changed(elevation_slider.value)
 	_on_wind_changed(wind_slider.value)
 	_add_hud_corner_marks(layer, panel)
+
+
+
+func _build_start_page() -> void:
+	start_page_layer = CanvasLayer.new()
+	start_page_layer.name = "GameModeStartPage"
+	start_page_layer.layer = 30
+	start_page_layer.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(start_page_layer)
+	start_page_root = Control.new()
+	start_page_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	start_page_root.mouse_filter = Control.MOUSE_FILTER_STOP
+	start_page_layer.add_child(start_page_root)
+	var backdrop := ColorRect.new()
+	backdrop.color = Color(0.006, 0.015, 0.027, 0.88)
+	backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	backdrop.mouse_filter = Control.MOUSE_FILTER_STOP
+	start_page_root.add_child(backdrop)
+	_populate_mode_selection()
+	range_hud_layer.hide()
+	range_hud_panel.hide()
+
+
+func _create_start_panel(title_text: String, subtitle_text: String) -> VBoxContainer:
+	if is_instance_valid(start_panel):
+		start_panel.queue_free()
+	start_panel = PanelContainer.new()
+	start_panel.name = "ModeSelectionPanel"
+	var view_size := get_viewport().get_visible_rect().size
+	var panel_width := minf(720.0, view_size.x - 32.0)
+	var panel_height := minf(660.0, view_size.y - 32.0)
+	start_panel.anchor_left = 0.5
+	start_panel.anchor_right = 0.5
+	start_panel.anchor_top = 0.5
+	start_panel.anchor_bottom = 0.5
+	start_panel.offset_left = -panel_width * 0.5
+	start_panel.offset_right = panel_width * 0.5
+	start_panel.offset_top = -panel_height * 0.5
+	start_panel.offset_bottom = panel_height * 0.5
+	var glass := StyleBoxFlat.new()
+	glass.bg_color = Color(0.008, 0.025, 0.039, 0.97)
+	glass.border_color = Color(0.16, 0.79, 0.94, 0.94)
+	glass.set_border_width_all(1)
+	glass.set_corner_radius_all(5)
+	glass.shadow_color = Color(0.0, 0.0, 0.0, 0.55)
+	glass.shadow_size = 16
+	start_panel.add_theme_stylebox_override("panel", glass)
+	start_page_root.add_child(start_panel)
+	var margins := MarginContainer.new()
+	for margin_name in ["margin_left", "margin_right"]:
+		margins.add_theme_constant_override(margin_name, 22)
+	margins.add_theme_constant_override("margin_top", 20)
+	margins.add_theme_constant_override("margin_bottom", 20)
+	start_panel.add_child(margins)
+	var content := VBoxContainer.new()
+	content.add_theme_constant_override("separation", 12)
+	margins.add_child(content)
+	var eyebrow := Label.new()
+	eyebrow.text = "TRAJECTORY WORKS  /  HYPERVELOCITY LAB"
+	eyebrow.add_theme_font_size_override("font_size", 13)
+	eyebrow.add_theme_color_override("font_color", Color(0.38, 0.84, 0.94))
+	content.add_child(eyebrow)
+	var title := Label.new()
+	title.text = title_text
+	title.add_theme_font_size_override("font_size", 29)
+	title.add_theme_color_override("font_color", Color(0.84, 0.95, 0.98))
+	content.add_child(title)
+	var subtitle := Label.new()
+	subtitle.text = subtitle_text
+	subtitle.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	subtitle.add_theme_color_override("font_color", Color(0.63, 0.78, 0.84))
+	content.add_child(subtitle)
+	var divider := ColorRect.new()
+	divider.custom_minimum_size = Vector2(0.0, 1.0)
+	divider.color = Color(0.08, 0.56, 0.69, 0.75)
+	content.add_child(divider)
+	return content
+
+
+func _flow_button(label_text: String, min_height: float = 56.0) -> Button:
+	var button := Button.new()
+	button.text = label_text
+	button.custom_minimum_size = Vector2(0.0, min_height)
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button.add_theme_font_size_override("font_size", 18)
+	button.add_theme_color_override("font_color", Color(0.63, 0.94, 1.0))
+	button.add_theme_color_override("font_hover_color", Color(0.88, 0.98, 1.0))
+	var normal := StyleBoxFlat.new()
+	normal.bg_color = Color(0.02, 0.08, 0.11, 0.95)
+	normal.border_color = Color(0.12, 0.66, 0.79, 0.82)
+	normal.set_border_width_all(1)
+	normal.set_corner_radius_all(4)
+	button.add_theme_stylebox_override("normal", normal)
+	var hover := StyleBoxFlat.new()
+	hover.bg_color = Color(0.04, 0.20, 0.26, 1.0)
+	hover.border_color = Color(0.30, 0.88, 0.98, 1.0)
+	hover.set_border_width_all(1)
+	hover.set_corner_radius_all(4)
+	button.add_theme_stylebox_override("hover", hover)
+	button.add_theme_stylebox_override("pressed", hover)
+	return button
+
+
+func _populate_mode_selection() -> void:
+	if not is_instance_valid(start_page_layer):
+		return
+	start_page_layer.show()
+	var content := _create_start_panel("CHOOSE YOUR TEST MODE", "Build a munition, tune the launcher, and study what the flight teaches you.")
+	var mode_note := Label.new()
+	mode_note.text = "SANDBOX  •  OPEN TESTING, NO SCORE REQUIREMENTS"
+	mode_note.add_theme_font_size_override("font_size", 12)
+	mode_note.add_theme_color_override("font_color", Color(0.42, 0.81, 0.89))
+	content.add_child(mode_note)
+	var sandbox := _flow_button("SANDBOX MODE\nFree tuning, unlimited experiments", 72.0)
+	sandbox.pressed.connect(_enter_sandbox)
+	content.add_child(sandbox)
+	var challenge_note := Label.new()
+	challenge_note.text = "CHALLENGE MODE  •  SIX TESTS, RISING DIFFICULTY"
+	challenge_note.add_theme_font_size_override("font_size", 12)
+	challenge_note.add_theme_color_override("font_color", Color(1.0, 0.58, 0.22))
+	content.add_child(challenge_note)
+	var challenges := _flow_button("CHALLENGE MODE\nSolve range, wind, custom-round, and armor tests", 72.0)
+	challenges.pressed.connect(_populate_challenge_selection)
+	content.add_child(challenges)
+	var vault := _flow_button("MUNITION DESIGN VAULT", 54.0)
+	vault.pressed.connect(_open_design_vault)
+	content.add_child(vault)
+	var progress := Label.new()
+	progress.text = "%d / %d CHALLENGES CLEARED  •  %d SAVED DESIGNS" % [challenge_completed_ids.size(), CHALLENGES.size(), saved_munition_designs.size()]
+	progress.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	progress.add_theme_color_override("font_color", Color(0.50, 0.75, 0.80))
+	content.add_child(progress)
+	if game_mode != "":
+		var resume := _flow_button("RETURN TO RANGE  •  " + game_mode.to_upper(), 44.0)
+		resume.pressed.connect(_resume_current_mode)
+		content.add_child(resume)
+
+
+func _populate_challenge_selection() -> void:
+	var content := _create_start_panel("CHALLENGE LADDER", "Each cleared test unlocks the next. You can retry any cleared stage.")
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	content.add_child(scroll)
+	var rows := VBoxContainer.new()
+	rows.add_theme_constant_override("separation", 8)
+	rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(rows)
+	for index in CHALLENGES.size():
+		var challenge: Dictionary = CHALLENGES[index]
+		var previous_complete := index == 0 or challenge_completed_ids.has(str(CHALLENGES[index - 1].id))
+		var completed := challenge_completed_ids.has(str(challenge.id))
+		var card_text := "%s    %s%s\n%s\nTARGET %s M  •  %s" % [
+			str(challenge.title), str(challenge.tier),
+			"  •  CLEARED" if completed else ("  •  LOCKED" if not previous_complete else ""),
+			str(challenge.description), str(challenge.target_m),
+			"ARMOR GATE" if bool(challenge.requires_gate) else "ATMOSPHERE / BALLISTICS"
+		]
+		var card := _flow_button(card_text, 82.0)
+		card.add_theme_font_size_override("font_size", 14)
+		card.disabled = not previous_complete
+		card.pressed.connect(_begin_challenge.bind(index))
+		rows.add_child(card)
+	var back := _flow_button("BACK TO MODE SELECT", 46.0)
+	back.pressed.connect(_populate_mode_selection)
+	content.add_child(back)
+
+
+func _enter_sandbox() -> void:
+	game_mode = "sandbox"
+	active_challenge_index = -1
+	get_tree().paused = false
+	if is_instance_valid(start_page_layer):
+		start_page_layer.hide()
+	if is_instance_valid(range_hud_layer):
+		range_hud_layer.show()
+	if is_instance_valid(range_hud_panel):
+		range_hud_panel.show()
+	if is_instance_valid(mode_status_label):
+		mode_status_label.text = "SANDBOX MODE  •  OPEN TESTING"
+	target_distance_picker.disabled = false
+	target_toggle_button.disabled = false
+	wind_slider.editable = true
+	wind_shear_slider.editable = true
+	collision_gate_material_picker.disabled = false
+	collision_gate_thickness_picker.disabled = false
+	collision_gate_distance_picker.disabled = false
+	collision_gate_button.disabled = false
+	collision_gate_enabled = false
+	_update_collision_gate_state()
+	if is_instance_valid(status_label):
+		status_label.text = "SANDBOX READY  •  TUNE ANY VARIABLE"
+	if is_instance_valid(analysis_label):
+		analysis_label.text = "SHOT DATA  •  Awaiting launch"
+
+
+func _resume_current_mode() -> void:
+	if game_mode == "challenge" and active_challenge_index >= 0:
+		_enter_gameplay()
+		return
+	_enter_sandbox()
+
+
+func _enter_gameplay() -> void:
+	get_tree().paused = false
+	if is_instance_valid(start_page_layer):
+		start_page_layer.hide()
+	if is_instance_valid(range_hud_layer):
+		range_hud_layer.show()
+	if is_instance_valid(range_hud_panel):
+		range_hud_panel.show()
+
+
+func _open_main_menu() -> void:
+	if not is_instance_valid(start_page_layer):
+		return
+	if is_instance_valid(range_hud_layer):
+		range_hud_layer.hide()
+	if is_instance_valid(range_hud_panel):
+		range_hud_panel.hide()
+	_populate_mode_selection()
+	start_page_layer.show()
+	get_tree().paused = true
+
+
+func _begin_challenge(index: int) -> void:
+	if index < 0 or index >= CHALLENGES.size():
+		return
+	var challenge: Dictionary = CHALLENGES[index]
+	var is_unlocked := index == 0 or challenge_completed_ids.has(str(CHALLENGES[index - 1].id))
+	if not is_unlocked:
+		return
+	game_mode = "challenge"
+	active_challenge_index = index
+	_apply_challenge_settings(challenge)
+	_enter_gameplay()
+	if is_instance_valid(mode_status_label):
+		mode_status_label.text = "CHALLENGE %02d / %02d  •  %s" % [index + 1, CHALLENGES.size(), str(challenge.title)]
+	if is_instance_valid(status_label):
+		status_label.text = "CHALLENGE READY  •  %s" % str(challenge.tier)
+	if bool(challenge.requires_custom):
+		if str(current_projectile.get("shape", "")) != "custom":
+			_start_fresh_round()
+		custom_round_active = true
+		projectile_picker.select(PROJECTILE_TYPES.size())
+		_open_round_editor()
+
+
+func _apply_challenge_settings(challenge: Dictionary) -> void:
+	target_enabled = true
+	_update_target_state()
+	_set_option_text(target_distance_picker, "%d M" % int(challenge.target_m))
+	speed_slider.set_value_no_signal(float(challenge.speed))
+	_on_speed_changed(speed_slider.value)
+	elevation_slider.set_value_no_signal(float(challenge.elevation))
+	_on_elevation_changed(elevation_slider.value)
+	wind_slider.set_value_no_signal(float(challenge.wind))
+	_on_wind_changed(wind_slider.value)
+	wind_shear_slider.set_value_no_signal(float(challenge.shear))
+	_on_wind_shear_changed(wind_shear_slider.value)
+	var preset_index := int(challenge.preset)
+	if preset_index >= 0:
+		projectile_picker.select(preset_index)
+		_on_projectile_preset_selected(preset_index)
+	else:
+		projectile_picker.select(PROJECTILE_TYPES.size())
+	target_distance_picker.disabled = true
+	target_toggle_button.disabled = true
+	wind_slider.editable = false
+	wind_shear_slider.editable = false
+	collision_gate_material_picker.disabled = true
+	collision_gate_thickness_picker.disabled = true
+	collision_gate_distance_picker.disabled = true
+	collision_gate_button.disabled = true
+	collision_gate_enabled = bool(challenge.requires_gate)
+	if collision_gate_enabled:
+		collision_gate_material_index = int(challenge.get("gate_material", 0))
+		collision_gate_material_picker.select(collision_gate_material_index)
+		_on_collision_gate_material_selected(collision_gate_material_index)
+		_set_option_text(collision_gate_thickness_picker, "%d MM" % int(challenge.get("gate_thickness", 100)))
+		_set_option_text(collision_gate_distance_picker, "%d M" % int(challenge.get("gate_m", 2000)))
+	_update_collision_gate_state()
+
+
+func _set_option_text(option: OptionButton, wanted: String) -> void:
+	if not is_instance_valid(option):
+		return
+	for index in option.item_count:
+		if option.get_item_text(index) == wanted:
+			option.select(index)
+			if option == target_distance_picker:
+				_on_target_distance_selected(index)
+			elif option == collision_gate_thickness_picker:
+				_on_collision_gate_thickness_selected(index)
+			elif option == collision_gate_distance_picker:
+				_on_collision_gate_distance_selected(index)
+			return
+
+
+func _load_challenge_progress() -> void:
+	challenge_completed_ids.clear()
+	if not FileAccess.file_exists("user://trajectory_challenge_progress.json"):
+		return
+	var file := FileAccess.open("user://trajectory_challenge_progress.json", FileAccess.READ)
+	if file == null:
+		return
+	var parsed: Variant = JSON.parse_string(file.get_as_text())
+	if not parsed is Dictionary:
+		return
+	var completed: Variant = parsed.get("completed", [])
+	if completed is Array:
+		for item in completed:
+			if typeof(item) == TYPE_STRING and not challenge_completed_ids.has(str(item)):
+				challenge_completed_ids.append(str(item))
+
+
+func _save_challenge_progress() -> void:
+	var file := FileAccess.open("user://trajectory_challenge_progress.json", FileAccess.WRITE)
+	if file == null:
+		push_warning("Could not save challenge progress.")
+		return
+	file.store_string(JSON.stringify({"completed": challenge_completed_ids}))
+
+
+func _challenge_failure_reason(challenge: Dictionary, summary: Dictionary) -> String:
+	if int(summary.get("target_distance_m", challenge.get("target_m", -1))) != int(challenge.get("target_m", -2)):
+		return "The required target distance was changed."
+	var outcome := str(summary.get("outcome", ""))
+	if not outcome.begins_with("TARGET HIT"):
+		return "The target was not hit."
+	var score := int(summary.get("target_score", 0))
+	var required_score := int(challenge.get("min_score", 10))
+	if score < required_score:
+		return "Target score %d; %d required." % [score, required_score]
+	if bool(challenge.get("requires_custom", false)):
+		var design: Dictionary = summary.get("design", {})
+		if str(design.get("shape", "")) != "custom":
+			return "This test requires a custom round."
+	if bool(challenge.get("requires_gate", false)):
+		var gate_passes: Array = summary.get("gate_passes", [])
+		var correct_gate_passed := false
+		for gate_pass in gate_passes:
+			if int(gate_pass.get("material_index", -1)) == int(challenge.get("gate_material", 0)) and int(gate_pass.get("thickness_mm", 0)) == int(challenge.get("gate_thickness", 0)) and int(gate_pass.get("distance_m", 0)) == int(challenge.get("gate_m", 0)):
+				correct_gate_passed = true
+				break
+		if not correct_gate_passed:
+			return "Perforate the specified armor gate before hitting the target."
+	return ""
+
+
+func _evaluate_active_challenge(summary: Dictionary) -> void:
+	if game_mode != "challenge" or active_challenge_index < 0 or active_challenge_index >= CHALLENGES.size():
+		return
+	var challenge: Dictionary = CHALLENGES[active_challenge_index]
+	if str(summary.get("challenge_id", "")) != str(challenge.id):
+		mode_status_label.text = "SHOT FIRED OUTSIDE ACTIVE TEST"
+		return
+	var failure := _challenge_failure_reason(challenge, summary)
+	if failure.is_empty():
+		var challenge_id := str(challenge.id)
+		if not challenge_completed_ids.has(challenge_id):
+			challenge_completed_ids.append(challenge_id)
+			_save_challenge_progress()
+		mode_status_label.text = "ALL CHALLENGES CLEARED" if active_challenge_index == CHALLENGES.size() - 1 else "CHALLENGE CLEARED  •  NEXT TEST UNLOCKED"
+		status_label.text = "TEST COMPLETE  •  %s" % str(challenge.title)
+	else:
+		mode_status_label.text = "RETRY  •  " + failure
+		status_label.text = "CHALLENGE INCOMPLETE  •  " + failure
+
+
+func _serialize_design(design: Dictionary) -> Dictionary:
+	var saved := {}
+	for key in ["name", "shape", "mass", "diameter", "length", "cd", "nose", "material", "density", "tip_length", "stations", "surface_pattern", "rib_count", "rib_depth", "tip_surface_pattern", "tip_rib_depth", "spiral_turns"]:
+		if design.has(key):
+			saved[key] = design[key].duplicate(true) if design[key] is Array or design[key] is Dictionary else design[key]
+	return saved
+
+
+func _deserialize_saved_design(saved: Dictionary) -> Dictionary:
+	var shape := str(saved.get("shape", "custom"))
+	var design: Dictionary = PROJECTILE_TYPES[0].duplicate(true)
+	if shape != "custom":
+		for preset in PROJECTILE_TYPES:
+			if str(preset.shape) == shape or str(preset.name) == str(saved.get("name", "")):
+				design = preset.duplicate(true)
+				break
+	for key in ["name", "shape", "mass", "diameter", "length", "cd", "nose", "material", "density", "tip_length", "stations", "surface_pattern", "rib_count", "rib_depth", "tip_surface_pattern", "tip_rib_depth", "spiral_turns"]:
+		if saved.has(key):
+			design[key] = saved[key].duplicate(true) if saved[key] is Array or saved[key] is Dictionary else saved[key]
+	var material_data: Dictionary = ROUND_MATERIALS[1]
+	for candidate in ROUND_MATERIALS:
+		if str(candidate.name) == str(design.get("material", "")):
+			material_data = candidate
+			break
+	design["material"] = str(material_data.name)
+	design["density"] = float(design.get("density", material_data.density))
+	design["color"] = material_data.color
+	design["name"] = str(design.get("name", "Custom round"))
+	design["shape"] = shape
+	if shape == "custom":
+		design["mass"] = _round_volume(design) * float(design.density)
+		design["cd"] = float(design.get("cd", _round_drag_coefficient(str(design.get("nose", "Ogive")))))
+	return design
+
+
+func _load_saved_designs() -> void:
+	saved_munition_designs.clear()
+	if not FileAccess.file_exists("user://trajectory_munition_designs.json"):
+		return
+	var file := FileAccess.open("user://trajectory_munition_designs.json", FileAccess.READ)
+	if file == null:
+		return
+	var parsed: Variant = JSON.parse_string(file.get_as_text())
+	if not parsed is Dictionary:
+		return
+	var designs: Variant = parsed.get("designs", [])
+	if designs is Array:
+		for item in designs:
+			if item is Dictionary and item.has("name"):
+				saved_munition_designs.append(item)
+
+
+func _save_design_collection() -> bool:
+	var file := FileAccess.open("user://trajectory_munition_designs.json", FileAccess.WRITE)
+	if file == null:
+		return false
+	file.store_string(JSON.stringify({"designs": saved_munition_designs}))
+	return true
+
+
+func _open_design_vault() -> void:
+	if not is_instance_valid(design_vault_layer):
+		design_vault_layer = CanvasLayer.new()
+		design_vault_layer.name = "MunitionDesignVault"
+		design_vault_layer.layer = 40
+		design_vault_layer.process_mode = Node.PROCESS_MODE_ALWAYS
+		add_child(design_vault_layer)
+	design_vault_was_gameplay = not is_instance_valid(start_page_layer) or not start_page_layer.visible
+	if design_vault_was_gameplay:
+		get_tree().paused = true
+	design_vault_root = Control.new()
+	design_vault_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	design_vault_root.mouse_filter = Control.MOUSE_FILTER_STOP
+	design_vault_layer.add_child(design_vault_root)
+	var backdrop := ColorRect.new()
+	backdrop.color = Color(0.004, 0.012, 0.020, 0.90)
+	backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	backdrop.mouse_filter = Control.MOUSE_FILTER_STOP
+	design_vault_root.add_child(backdrop)
+	var panel := PanelContainer.new()
+	var view_size := get_viewport().get_visible_rect().size
+	var panel_width := minf(700.0, view_size.x - 28.0)
+	var panel_height := minf(760.0, view_size.y - 28.0)
+	panel.anchor_left = 0.5
+	panel.anchor_right = 0.5
+	panel.anchor_top = 0.5
+	panel.anchor_bottom = 0.5
+	panel.offset_left = -panel_width * 0.5
+	panel.offset_right = panel_width * 0.5
+	panel.offset_top = -panel_height * 0.5
+	panel.offset_bottom = panel_height * 0.5
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.008, 0.025, 0.039, 0.99)
+	style.border_color = Color(0.16, 0.79, 0.94, 0.94)
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(5)
+	panel.add_theme_stylebox_override("panel", style)
+	design_vault_root.add_child(panel)
+	var margins := MarginContainer.new()
+	margins.add_theme_constant_override("margin_left", 18)
+	margins.add_theme_constant_override("margin_right", 18)
+	margins.add_theme_constant_override("margin_top", 15)
+	margins.add_theme_constant_override("margin_bottom", 15)
+	panel.add_child(margins)
+	var content := VBoxContainer.new()
+	content.add_theme_constant_override("separation", 8)
+	margins.add_child(content)
+	var header := HBoxContainer.new()
+	content.add_child(header)
+	var title := Label.new()
+	title.text = "MUNITION DESIGN VAULT"
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.add_theme_font_size_override("font_size", 22)
+	title.add_theme_color_override("font_color", Color(0.72, 0.93, 0.98))
+	header.add_child(title)
+	var close := _flow_button("CLOSE", 40.0)
+	close.custom_minimum_size.x = 96.0
+	close.pressed.connect(_close_design_vault)
+	header.add_child(close)
+	var description := Label.new()
+	description.text = "Name a round to save its geometry and material. Load it later in Sandbox or use it in a challenge."
+	description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	description.add_theme_color_override("font_color", Color(0.58, 0.77, 0.82))
+	content.add_child(description)
+	var save_row := HBoxContainer.new()
+	save_row.add_theme_constant_override("separation", 7)
+	content.add_child(save_row)
+	design_vault_name_edit = LineEdit.new()
+	design_vault_name_edit.placeholder_text = "Munition name"
+	design_vault_name_edit.text = str(current_projectile.get("name", "My round"))
+	design_vault_name_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	save_row.add_child(design_vault_name_edit)
+	var save_button := _flow_button("SAVE DESIGN", 42.0)
+	save_button.custom_minimum_size.x = 150.0
+	save_button.pressed.connect(_save_named_design)
+	save_row.add_child(save_button)
+	design_vault_message = Label.new()
+	design_vault_message.add_theme_color_override("font_color", Color(0.36, 0.88, 0.74))
+	content.add_child(design_vault_message)
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.custom_minimum_size.y = minf(390.0, panel_height * 0.55)
+	content.add_child(scroll)
+	design_vault_list = VBoxContainer.new()
+	design_vault_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	design_vault_list.add_theme_constant_override("separation", 6)
+	scroll.add_child(design_vault_list)
+	_refresh_design_vault()
+	design_vault_layer.show()
+
+
+func _close_design_vault() -> void:
+	if is_instance_valid(design_vault_root):
+		design_vault_root.queue_free()
+		design_vault_root = null
+	if design_vault_was_gameplay:
+		get_tree().paused = false
+
+
+func _save_named_design() -> void:
+	var design_name := design_vault_name_edit.text.strip_edges()
+	if design_name.is_empty():
+		design_vault_message.text = "Enter a name before saving."
+		return
+	if current_projectile.is_empty():
+		design_vault_message.text = "Select or build a munition first."
+		return
+	var saved := _serialize_design(current_projectile)
+	saved["name"] = design_name.left(32)
+	var existing_index := -1
+	for index in saved_munition_designs.size():
+		if str(saved_munition_designs[index].get("name", "")).to_lower() == design_name.to_lower():
+			existing_index = index
+			break
+	if existing_index >= 0:
+		saved_munition_designs[existing_index] = saved
+	elif saved_munition_designs.size() < 32:
+		saved_munition_designs.append(saved)
+	else:
+		design_vault_message.text = "Vault is full (32 designs). Delete one before saving."
+		return
+	if not _save_design_collection():
+		design_vault_message.text = "Could not write to device storage."
+		return
+	design_vault_message.text = "SAVED  •  %s" % design_name.left(32)
+	_refresh_design_vault()
+
+
+func _refresh_design_vault() -> void:
+	if not is_instance_valid(design_vault_list):
+		return
+	for child in design_vault_list.get_children():
+		child.queue_free()
+	if saved_munition_designs.is_empty():
+		var empty := Label.new()
+		empty.text = "No saved designs yet. Edit a round, then name and save it here."
+		empty.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		empty.add_theme_color_override("font_color", Color(0.53, 0.70, 0.76))
+		design_vault_list.add_child(empty)
+		return
+	for index in saved_munition_designs.size():
+		var design: Dictionary = saved_munition_designs[index]
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 6)
+		design_vault_list.add_child(row)
+		var detail := Label.new()
+		detail.text = "%s\n%s  •  Ø %0.0f MM  •  %0.1f KG" % [
+			str(design.get("name", "Round")), str(design.get("material", design.get("shape", "custom"))),
+			float(design.get("diameter", 0.18)) * 1000.0, float(design.get("mass", 0.0))
+		]
+		detail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		detail.add_theme_font_size_override("font_size", 13)
+		detail.add_theme_color_override("font_color", Color(0.74, 0.88, 0.91))
+		row.add_child(detail)
+		var load_button := _flow_button("LOAD", 44.0)
+		load_button.custom_minimum_size.x = 80.0
+		load_button.add_theme_font_size_override("font_size", 13)
+		load_button.pressed.connect(_load_named_design.bind(index))
+		row.add_child(load_button)
+		var delete_button := _flow_button("DELETE", 44.0)
+		delete_button.custom_minimum_size.x = 86.0
+		delete_button.add_theme_font_size_override("font_size", 13)
+		delete_button.pressed.connect(_delete_named_design.bind(index))
+		row.add_child(delete_button)
+
+
+func _load_named_design(index: int) -> void:
+	if index < 0 or index >= saved_munition_designs.size():
+		return
+	current_projectile = _deserialize_saved_design(saved_munition_designs[index])
+	custom_round_active = str(current_projectile.get("shape", "")) == "custom"
+	if is_instance_valid(projectile_picker):
+		if custom_round_active:
+			projectile_picker.select(PROJECTILE_TYPES.size())
+		else:
+			var preset_index := 0
+			for item_index in PROJECTILE_TYPES.size():
+				if str(PROJECTILE_TYPES[item_index].shape) == str(current_projectile.get("shape", "")):
+					preset_index = item_index
+					break
+			projectile_picker.select(preset_index)
+	if is_instance_valid(design_vault_message):
+		design_vault_message.text = "LOADED  •  %s" % str(current_projectile.get("name", "Round"))
+	if is_instance_valid(status_label):
+		status_label.text = "DESIGN LOADED  •  %s" % str(current_projectile.get("name", "ROUND")).to_upper()
+	if is_instance_valid(analysis_label):
+		analysis_label.text = "READY  •  %0.1f KG  /  Ø %0.0f MM" % [float(current_projectile.get("mass", 0.0)), float(current_projectile.get("diameter", 0.18)) * 1000.0]
+
+
+func _delete_named_design(index: int) -> void:
+	if index < 0 or index >= saved_munition_designs.size():
+		return
+	saved_munition_designs.remove_at(index)
+	if _save_design_collection():
+		design_vault_message.text = "DESIGN REMOVED"
+	else:
+		design_vault_message.text = "Could not update device storage."
+	_refresh_design_vault()
 
 
 func _on_projectile_preset_selected(index: int) -> void:
@@ -2666,7 +3362,7 @@ func _fire_test_shot() -> void:
 	var initial_atmosphere := _atmosphere_state(projectile.global_position.y)
 	var initial_spin := absf(projectile.angular_velocity.dot(-projectile.global_transform.basis.z.normalized())) * 60.0 / TAU
 	var initial_sample := {"time": 0.0, "position": projectile.global_position, "rotation": projectile.global_transform.basis.get_rotation_quaternion(), "velocity": projectile.linear_velocity, "mach": projectile.linear_velocity.length() / maxf(float(initial_atmosphere.sound_speed), 1.0), "spin_rpm": initial_spin, "q": 0.5 * float(initial_atmosphere.density) * projectile.linear_velocity.length_squared()}
-	active_shots[projectile.get_instance_id()] = {"body": projectile, "number": shot_count, "time": 0.0, "sample_timer": 0.0, "samples": [initial_sample], "max_height": projectile.global_position.y, "max_q": 0.0, "peak_mach": 0.0, "peak_spin_rpm": initial_spin, "origin": projectile.global_position, "design": design, "surface_crosswind": wind_slider.value, "wind_shear_10km": wind_shear_slider.value, "air_density": float(initial_atmosphere.density), "air_pressure_kpa": float(initial_atmosphere.pressure) / 1000.0, "air_temperature_c": float(initial_atmosphere.temperature) - 273.15}
+	active_shots[projectile.get_instance_id()] = {"body": projectile, "number": shot_count, "time": 0.0, "sample_timer": 0.0, "samples": [initial_sample], "max_height": projectile.global_position.y, "max_q": 0.0, "peak_mach": 0.0, "peak_spin_rpm": initial_spin, "origin": projectile.global_position, "design": design, "surface_crosswind": wind_slider.value, "wind_shear_10km": wind_shear_slider.value, "air_density": float(initial_atmosphere.density), "air_pressure_kpa": float(initial_atmosphere.pressure) / 1000.0, "air_temperature_c": float(initial_atmosphere.temperature) - 273.15, "challenge_id": str(CHALLENGES[active_challenge_index].id) if game_mode == "challenge" and active_challenge_index >= 0 else "", "target_distance_m": target_distance_m}
 	_play_cannon_fire_effect()
 	analysis_label.text = "IN FLIGHT  •  %0.1f KG / %0.0f MM / Cd %0.2f" % [design.mass, design.diameter * 1000.0, design.cd]
 	# Shots remain active until impact; the long failsafe only cleans up runaway bodies.
@@ -3087,6 +3783,7 @@ func _on_projectile_body_entered(body: Node, projectile: RigidBody3D) -> void:
 			]
 	elif body.is_in_group("range_targets"):
 		var points := _score_target_hit(projectile)
+		shot["target_score"] = points
 		target_score += points
 		target_hits += 1
 		_update_target_score_display()
@@ -3107,6 +3804,13 @@ func _on_projectile_body_entered(body: Node, projectile: RigidBody3D) -> void:
 			float(gate_calculation.penetration_mm), float(gate_calculation.exit_speed)
 		])
 		shot["gate_log"] = gate_log
+		var gate_passes: Array = shot.get("gate_passes", [])
+		gate_passes.append({
+			"material_index": collision_gate_material_index,
+			"thickness_mm": collision_gate_thickness_mm,
+			"distance_m": int(body.get_meta("gate_distance_m", 0))
+		})
+		shot["gate_passes"] = gate_passes
 		var gate_body := body as PhysicsBody3D
 		var gate_node := body as Node3D
 		if is_instance_valid(gate_body):
@@ -3156,9 +3860,14 @@ func _finish_shot(shot: Dictionary, projectile: RigidBody3D, outcome: String, im
 		"impact_mach": impact_speed / maxf(float(atmosphere.sound_speed), 1.0), "spin_rpm": maxf(final_spin, float(shot.get("peak_spin_rpm", 0.0))),
 		"mass": float(design.mass), "diameter": float(design.diameter), "peak_mach": float(shot.get("peak_mach", 0.0)),
 		"surface_crosswind": float(shot.get("surface_crosswind", 0.0)), "wind_shear_10km": float(shot.get("wind_shear_10km", 0.0)), "air_density": float(shot.get("air_density", AIR_DENSITY)), "air_pressure_kpa": float(shot.get("air_pressure_kpa", 101.325)), "air_temperature_c": float(shot.get("air_temperature_c", 15.0)),
-		"max_q": float(shot.get("max_q", 0.0)), "samples": sample_copy, "design": design.duplicate(true)
+		"max_q": float(shot.get("max_q", 0.0)), "target_score": int(shot.get("target_score", 0)),
+		"samples": sample_copy, "design": design.duplicate(true),
+		"target_distance_m": int(shot.get("target_distance_m", target_distance_m)),
+		"challenge_id": str(shot.get("challenge_id", "")),
+		"gate_passes": shot.get("gate_passes", []).duplicate(true)
 	}
 	shot_history.append(summary)
+	_evaluate_active_challenge(summary)
 	while shot_history.size() > 8:
 		shot_history.pop_front()
 	_show_shot_review()
